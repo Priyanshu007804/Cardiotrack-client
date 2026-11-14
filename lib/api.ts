@@ -140,6 +140,53 @@ export const removeAuthToken = (): void => {
   }
 };
 
+export const parseJwtPayload = (token: string): { exp?: number; sub?: string; role?: string; userId?: number; [key: string]: any } | null => {
+  if (!token || typeof token !== "string") return null;
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    let jsonPayload = "";
+    if (typeof window !== "undefined" && typeof atob === "function") {
+      jsonPayload = decodeURIComponent(
+        atob(base64)
+          .split("")
+          .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+          .join("")
+      );
+    } else if (typeof Buffer !== "undefined") {
+      jsonPayload = Buffer.from(base64, "base64").toString("utf-8");
+    }
+    return jsonPayload ? JSON.parse(jsonPayload) : null;
+  } catch {
+    return null;
+  }
+};
+
+export const isTokenExpired = (token: string | null): boolean => {
+  if (!token) return true;
+  const payload = parseJwtPayload(token);
+  if (!payload || typeof payload.exp !== "number") return false;
+  // exp is in seconds; Date.now() is in ms. Buffer 2 seconds to avoid in-flight race conditions.
+  return Date.now() >= payload.exp * 1000 - 2000;
+};
+
+export const getTokenRemainingMs = (token: string | null): number => {
+  if (!token) return 0;
+  const payload = parseJwtPayload(token);
+  if (!payload || typeof payload.exp !== "number") return Infinity;
+  const remaining = payload.exp * 1000 - Date.now();
+  return Math.max(0, remaining);
+};
+
+export const dispatchSessionExpired = (): void => {
+  removeAuthToken();
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("cardiotrack:session-expired"));
+  }
+};
+
 export const getStoredUser = (): StoredUser | null => {
   if (typeof window === "undefined") return null;
   const raw = localStorage.getItem("cardiotrack_user");
@@ -162,6 +209,13 @@ async function request<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const token = getAuthToken();
+
+  // If token is locally detected as expired, proactively dispatch session expiry
+  if (token && isTokenExpired(token)) {
+    dispatchSessionExpired();
+    throw new Error("Your session has expired. Please sign in again.");
+  }
+
   const headers = new Headers(options.headers || {});
 
   if (token && !headers.has("Authorization")) {
@@ -198,6 +252,17 @@ async function request<T>(
         // Fallback
       }
     }
+
+    // Auto-logout when session expires (HTTP 401 Unauthorized or expired token rejection)
+    const isAuthFailure =
+      response.status === 401 ||
+      (response.status === 403 && (isTokenExpired(token) || errorMessage.toLowerCase().includes("expired") || errorMessage.toLowerCase().includes("jwt")));
+
+    if (isAuthFailure && token) {
+      dispatchSessionExpired();
+      throw new Error("Your session has expired. Please sign in again.");
+    }
+
     throw new Error(errorMessage);
   }
 

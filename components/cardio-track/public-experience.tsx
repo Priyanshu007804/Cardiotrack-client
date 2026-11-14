@@ -97,6 +97,12 @@ type AuthExperienceProps = {
 export function AuthExperience({ initialRole, sessionExpired = false, onBack, onSuccess }: AuthExperienceProps) {
   const [role, setRole] = useState<Role>(initialRole)
   const [screen, setScreen] = useState<"sign-in" | "register" | "forgot" | "reset" | "expired">(sessionExpired ? "expired" : "sign-in")
+
+  useEffect(() => {
+    if (sessionExpired) {
+      setScreen("expired")
+    }
+  }, [sessionExpired])
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
