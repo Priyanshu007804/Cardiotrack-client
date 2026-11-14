@@ -59,15 +59,8 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
                 name: profile.name,
                 age: profile.age,
                 gender: profile.gender || "Other",
-                phone: "+91 98000 00000",
-                email: `${profile.name.toLowerCase().replace(/\s+/g, ".")}@cardiotrack.in`,
-                bloodGroup: "O+",
-                department: "Cardiology",
-                doctor: "Dr. Arindam Bose",
                 status: "Active",
                 lastVisit: "Today",
-                emergency: "Care Coordinator",
-                address: "Kolkata, West Bengal",
               }
               setPatients([livePatient])
               setSelectedPatient(livePatient)
@@ -154,15 +147,8 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
                 name: p.name,
                 age: p.age,
                 gender: p.gender || "Other",
-                phone: "+91 98000 00000",
-                email: `${p.name.toLowerCase().replace(/\s+/g, ".")}@cardiotrack.in`,
-                bloodGroup: "B+",
-                department: "Cardiology",
-                doctor: "Dr. Arindam Bose",
                 status: "Active",
                 lastVisit: "Recent",
-                emergency: "Contact Hospital",
-                address: "Kolkata, West Bengal",
               }))
               setPatients(mappedPatients)
             }
@@ -206,7 +192,7 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
   const visiblePatients = useMemo(() => {
     const source = role === "Patient" ? (ownPatient ? [ownPatient] : []) : patients
     return source.filter((patient) => {
-      const matchesQuery = `${patient.name} ${patient.id} ${patient.department} ${patient.doctor}`.toLowerCase().includes(query.toLowerCase())
+      const matchesQuery = `${patient.name} ${patient.id} ${patient.gender}`.toLowerCase().includes(query.toLowerCase())
       const matchesStatus = filter === "All patients" || patient.status === filter
       return matchesQuery && matchesStatus
     })
@@ -250,17 +236,10 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
     const value = (name: string) => String(formData.get(name) ?? "").trim()
     if (modal === "patient") {
       const name = value("name")
-      const age = Number(value("age")) || 34
+      const age = Number(value("age")) || 0
       const gender = value("gender") || "Other"
       const email = value("email")
       const password = value("password")
-      const phone = value("phone") || "+91 98000 00000"
-      const bloodGroup = value("bloodGroup") || "Unknown"
-      const department = value("department") || "Cardiology"
-      const rawDoctor = value("doctor")
-      const doctor = (rawDoctor && rawDoctor !== "Unassigned") ? rawDoctor : "Unassigned"
-      const emergency = value("emergency") || "Contact Hospital"
-      const address = value("address") || "Kolkata, West Bengal"
 
       // Step 1: Provision patient user credentials in auth-service (Users DB)
       authApi.createPatientAccount(email, password).then((userRes) => {
@@ -272,15 +251,9 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
             name: saved.name,
             age: saved.age,
             gender: saved.gender,
-            phone,
             email,
-            bloodGroup,
-            department,
-            doctor,
             status: "Active",
             lastVisit: "Today",
-            emergency,
-            address,
           }
           setPatients((previous) => [newPatient, ...previous.filter(p => p.id !== newPatient.id)])
           notify(`${name} registered! Family login: ${email} (User #${userId})`)
@@ -293,15 +266,9 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
             name: saved.name,
             age: saved.age,
             gender: saved.gender,
-            phone,
             email,
-            bloodGroup,
-            department,
-            doctor,
             status: "Active",
             lastVisit: "Today",
-            emergency,
-            address,
           }
           setPatients((previous) => [newPatient, ...previous.filter(p => p.id !== newPatient.id)])
           notify(`${name} saved to Patient DB (${err.message})`)
@@ -317,11 +284,24 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
     if (modal === "edit-patient") {
       const currentPatient = patients.find((item) => item.id === targetId)
       if (!currentPatient) return
-      const updatedPatient: Patient = { ...currentPatient, name: value("name"), age: Number(value("age")) || currentPatient.age, gender: value("gender"), phone: value("phone"), email: value("email"), bloodGroup: value("bloodGroup"), department: value("department"), doctor: value("doctor"), emergency: value("emergency"), address: value("address") }
-      setPatients((previous) => previous.map((patient) => patient.id === updatedPatient.id ? updatedPatient : patient))
-      setSelectedPatient(updatedPatient)
+      const name = value("name")
+      const age = Number(value("age")) || currentPatient.age
+      const gender = value("gender") || currentPatient.gender
+      const rawId = parseInt(currentPatient.id.replace(/\D/g, ""))
+
+      patientApi.update(rawId, { name, age, gender }).then((saved) => {
+        const updatedPatient: Patient = { ...currentPatient, name: saved.name, age: saved.age, gender: saved.gender }
+        setPatients((previous) => previous.map((patient) => patient.id === updatedPatient.id ? updatedPatient : patient))
+        setSelectedPatient(updatedPatient)
+        notify(`${updatedPatient.name}'s profile was updated in database.`)
+      }).catch((err) => {
+        const updatedPatient: Patient = { ...currentPatient, name, age, gender }
+        setPatients((previous) => previous.map((patient) => patient.id === updatedPatient.id ? updatedPatient : patient))
+        setSelectedPatient(updatedPatient)
+        notify(`${updatedPatient.name} updated (${err.message})`)
+      })
+
       setModal(null)
-      notify(`${updatedPatient.name}'s demonstration profile was updated.`)
       return
     }
     if (modal === "record") {
@@ -612,7 +592,7 @@ function Overview({ role, name, patients, records, tests, admissions, onNavigate
     </div>
     <div className="bottom-overview-grid">
       <section className="surface-card table-card"><div className="card-heading"><div><h2>{patientView ? "Your latest records" : "Recently seen patients"}</h2><p>{patientView ? "Entries recorded by your care team" : "Latest patient activity across the hospital"}</p></div><button className="text-link" onClick={() => onNavigate(patientView ? "records" : "patients")}>View all <ArrowRight aria-hidden="true" /></button></div>
-        {patientView ? <div className="record-preview-list">{[ownRecord, ownTest].filter(Boolean).map((item, index) => <button className="record-preview-row" key={item!.id} onClick={() => onNavigate(index === 0 ? "records" : "diagnostics")}><span className={`row-icon ${index === 0 ? "tone-teal" : "tone-blue"}`}>{index === 0 ? <ClipboardList /> : <TestTube2 />}</span><span><strong>{index === 0 ? "Follow-up consultation" : "ECG appointment"}</strong><small>{index === 0 ? "12 Nov 2026 · Clinical record" : "13 Nov 2026 · Scheduled test"}</small></span><ChevronRight aria-hidden="true" /></button>)}</div> : <div className="compact-patient-list">{patients.slice(0, 4).map((patient) => <button key={patient.id} className="compact-patient-row" onClick={() => onOpenPatient(patient)}><span className="patient-avatar">{initials(patient.name)}</span><span className="compact-patient-main"><strong>{patient.name}</strong><small>{patient.department}</small></span><span className="compact-patient-date">{patient.lastVisit}</span><ChevronRight aria-hidden="true" /></button>)}</div>}
+        {patientView ? <div className="record-preview-list">{[ownRecord, ownTest].filter(Boolean).map((item, index) => <button className="record-preview-row" key={item!.id} onClick={() => onNavigate(index === 0 ? "records" : "diagnostics")}><span className={`row-icon ${index === 0 ? "tone-teal" : "tone-blue"}`}>{index === 0 ? <ClipboardList /> : <TestTube2 />}</span><span><strong>{index === 0 ? "Follow-up consultation" : "ECG appointment"}</strong><small>{index === 0 ? "12 Nov 2026 · Clinical record" : "13 Nov 2026 · Scheduled test"}</small></span><ChevronRight aria-hidden="true" /></button>)}</div> : <div className="compact-patient-list">{patients.slice(0, 4).map((patient) => <button key={patient.id} className="compact-patient-row" onClick={() => onOpenPatient(patient)}><span className="patient-avatar">{initials(patient.name)}</span><span className="compact-patient-main"><strong>{patient.name}</strong><small>{patient.age} years · {patient.gender}</small></span><span className="compact-patient-date">{patient.lastVisit}</span><ChevronRight aria-hidden="true" /></button>)}</div>}
       </section>
       <section className="surface-card quick-actions-card"><div className="card-heading"><div><h2>Quick actions</h2><p>Common tasks for your workspace</p></div></div><div className="quick-action-list">{(patientView ? [{ title: "View medical records", icon: ClipboardList, section: "records" as Section }, { title: "View upcoming tests", icon: TestTube2, section: "diagnostics" as Section }, { title: "Contact your care team", icon: Stethoscope, section: "doctors" as Section }] : [{ title: "Find a patient", icon: Search, section: "patients" as Section }, { title: "Review hospital stays", icon: Activity, section: "admissions" as Section }, { title: "Open clinical records", icon: FileHeart, section: "records" as Section }]).map((action) => <button className="quick-action" key={action.title} onClick={() => onNavigate(action.section)}><span><action.icon aria-hidden="true" /></span>{action.title}<ArrowRight aria-hidden="true" /></button>)}</div><div className="privacy-note"><LockKeyhole aria-hidden="true" /><span>Only authorized care team members can access patient details.</span></div></section>
     </div>
@@ -631,7 +611,7 @@ function PageHeading({ eyebrow, title, description, action }: { eyebrow: string;
 function PatientDirectory({ patients, role, query, filter, onFilter, onAdd, onOpen }: { patients: Patient[]; role: Role; query: string; filter: string; onFilter: (value: string) => void; onAdd: () => void; onOpen: (patient: Patient) => void }) {
   return <div className="page-stack"><PageHeading eyebrow={role === "Patient" ? "YOUR CARE" : "PATIENT SERVICES"} title={role === "Patient" ? "My health profile" : "Patient directory"} description={role === "Patient" ? "Your personal details and care history." : "Search patient information and open an authorized care record."} action={role !== "Patient" && (role === "Administrator" || role === "Hospital staff") ? <button className="button button-primary" onClick={onAdd}><Plus aria-hidden="true" /> Register patient</button> : undefined} />
     <div className="directory-summary"><div><span className="directory-counter">{patients.length}</span><span>{role === "Patient" ? "personal record" : "patients shown"}</span></div>{role !== "Patient" && <label className="filter-select"><Filter aria-hidden="true" /><select value={filter} onChange={(event) => onFilter(event.target.value)} aria-label="Filter by patient status"><option>All patients</option><option>Active</option><option>Follow-up</option></select><ChevronDown aria-hidden="true" /></label>}</div>
-    <section className="surface-card table-card full-table"><div className="table-scroll"><table><thead><tr><th>Patient</th><th>Patient ID</th><th>Department</th><th>Assigned doctor</th><th>Last visit</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{patients.map((patient) => <tr key={patient.id}><td><button className="table-person-button" onClick={() => onOpen(patient)}><span className="table-person"><span className="patient-avatar">{initials(patient.name)}</span><span><strong>{patient.name}</strong><small>{patient.age} years · {patient.gender}</small></span></span></button></td><td className="id-cell">{patient.id}</td><td>{patient.department}</td><td>{patient.doctor}</td><td>{patient.lastVisit}</td><td><StatusPill status={patient.status} /></td><td><button className="icon-button row-action" aria-label={`Open ${patient.name} profile`} onClick={(event) => { event.stopPropagation(); onOpen(patient) }}><ChevronRight aria-hidden="true" /></button></td></tr>)}</tbody></table></div>{patients.length === 0 && <EmptyState title={query ? "No matching patients" : "No patient records yet"} text={query ? "Try a different name, patient ID, or department." : "Register a patient to begin a care record."} />}
+    <section className="surface-card table-card full-table"><div className="table-scroll"><table><thead><tr><th>Patient</th><th>Patient ID</th><th>Age</th><th>Gender</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{patients.map((patient) => <tr key={patient.id}><td><button className="table-person-button" onClick={() => onOpen(patient)}><span className="table-person"><span className="patient-avatar">{initials(patient.name)}</span><span><strong>{patient.name}</strong><small>{patient.email || "Registered"}</small></span></span></button></td><td className="id-cell">{patient.id}</td><td>{patient.age} years</td><td>{patient.gender}</td><td><StatusPill status={patient.status || "Active"} /></td><td><button className="icon-button row-action" aria-label={`Open ${patient.name} profile`} onClick={(event) => { event.stopPropagation(); onOpen(patient) }}><ChevronRight aria-hidden="true" /></button></td></tr>)}</tbody></table></div>{patients.length === 0 && <EmptyState title={query ? "No matching patients" : "No patient records yet"} text={query ? "Try a different name or patient ID." : "Register a patient to begin a care record."} />}
     <div className="table-footer"><span>Showing {patients.length ? 1 : 0}–{patients.length} of {patients.length} {role === "Patient" ? "record" : "patients"}</span><div><button className="icon-button" aria-label="Previous page" disabled><ChevronLeft aria-hidden="true" /></button><span className="page-number">1</span><button className="icon-button" aria-label="Next page" disabled><ChevronRight aria-hidden="true" /></button></div></div></section>
     <p className="page-disclaimer"><LockKeyhole aria-hidden="true" /> Patient details are visible only within the assigned, authorized workspace.</p>
   </div>
@@ -639,9 +619,9 @@ function PatientDirectory({ patients, role, query, filter, onFilter, onAdd, onOp
 
 function PatientProfile({ patient, records, tests, reports, admissions, tab, onTab, onBack, onOpenReport, canEdit, onEdit }: { patient: Patient; records: MedicalRecord[]; tests: DiagnosticTest[]; reports: MedicalReport[]; admissions: Admission[]; tab: string; onTab: (tab: string) => void; onBack: () => void; onOpenReport: (report: MedicalReport) => void; canEdit: boolean; onEdit: () => void }) {
   const tabs = ["Overview", "Medical Records", "Diagnostic Tests", "Reports", "Hospital Stays"]
-  return <div className="page-stack"><button className="back-link" onClick={onBack}><ChevronLeft aria-hidden="true" /> Back to patient directory</button><div className="patient-profile-heading"><span className="patient-profile-avatar">{initials(patient.name)}</span><div className="patient-profile-title"><div className="eyebrow">PATIENT PROFILE · {patient.id}</div><h1>{patient.name}</h1><p>{patient.age} years · {patient.gender} · {patient.department}</p></div><StatusPill status={patient.status} /><button className="button button-outline" onClick={() => onOpenReport(reports[0] ?? { id: "", patientId: patient.id, patient: patient.name, name: "Patient summary", type: "Summary", date: "12 Nov 2026", size: "—" })}><FileHeart aria-hidden="true" /> View summary</button></div>
+  return <div className="page-stack"><button className="back-link" onClick={onBack}><ChevronLeft aria-hidden="true" /> Back to patient directory</button><div className="patient-profile-heading"><span className="patient-profile-avatar">{initials(patient.name)}</span><div className="patient-profile-title"><div className="eyebrow">PATIENT PROFILE · {patient.id}</div><h1>{patient.name}</h1><p>{patient.age} years · {patient.gender}</p></div><StatusPill status={patient.status || "Active"} /><button className="button button-outline" onClick={() => onOpenReport(reports[0] ?? { id: "", patientId: patient.id, patient: patient.name, name: "Patient summary", type: "Summary", date: "12 Nov 2026", size: "—" })}><FileHeart aria-hidden="true" /> View summary</button></div>
     <nav className="profile-tabs" aria-label="Patient profile sections">{tabs.map((item) => <button key={item} onClick={() => onTab(item)} className={tab === item ? "selected" : ""} aria-current={tab === item ? "page" : undefined}>{item}{item === "Medical Records" && <span>{records.length}</span>}</button>)}</nav>
-    {tab === "Overview" && <div className="patient-overview-grid"><section className="surface-card detail-card"><div className="card-heading"><div><h2>Patient information</h2><p>Personal details for care coordination</p></div>{canEdit && <button className="button button-outline button-small" onClick={onEdit}>Edit details</button>}</div><div className="detail-grid"><Detail label="Patient identifier" value={patient.id} /><Detail label="Date of birth" value="Not provided in this demonstration" /><Detail label="Blood group" value={patient.bloodGroup} /><Detail label="Phone number" value={patient.phone} /><Detail label="Email address" value={patient.email} /><Detail label="Department" value={patient.department} /><Detail label="Assigned doctor" value={patient.doctor} /><Detail label="Emergency contact" value={patient.emergency} /><Detail label="Address" value={patient.address} wide /></div></section><section className="surface-card history-card"><div className="card-heading"><div><h2>Recent care history</h2><p>Most recent entries in this record</p></div></div><div className="timeline-list">{records.slice(0, 3).map((record) => <TimelineItem key={record.id} date={record.date.split(" ").slice(0, 2).join(" ")} title={record.title} subtitle={`${record.doctor} · ${record.diagnosis}`} tone="teal" />)}{records.length === 0 && <EmptyState title="No clinical records" text="Documented care entries will appear here." />}</div></section></div>}
+    {tab === "Overview" && <div className="patient-overview-grid"><section className="surface-card detail-card"><div className="card-heading"><div><h2>Patient information</h2><p>Personal details for care coordination</p></div>{canEdit && <button className="button button-outline button-small" onClick={onEdit}>Edit details</button>}</div><div className="detail-grid"><Detail label="Patient identifier" value={patient.id} /><Detail label="Full name" value={patient.name} /><Detail label="Age" value={`${patient.age} years`} /><Detail label="Gender" value={patient.gender} /><Detail label="Account status" value={patient.status || "Active"} /><Detail label="Account email" value={patient.email || "Registered in Users DB"} /></div></section><section className="surface-card history-card"><div className="card-heading"><div><h2>Recent care history</h2><p>Most recent entries in this record</p></div></div><div className="timeline-list">{records.slice(0, 3).map((record) => <TimelineItem key={record.id} date={record.date.split(" ").slice(0, 2).join(" ")} title={record.title} subtitle={`${record.doctor} · ${record.diagnosis}`} tone="teal" />)}{records.length === 0 && <EmptyState title="No clinical records" text="Documented care entries will appear here." />}</div></section></div>}
     {tab === "Medical Records" && <RecordList records={records} />}
     {tab === "Diagnostic Tests" && <DiagnosticList tests={tests} />}
     {tab === "Reports" && <ReportList reports={reports} onPreview={onOpenReport} />}
@@ -666,7 +646,7 @@ function DoctorsPage({ role, patients, liveDoctors, onAssign, onOpenPatient, onA
         tone: tones[i % tones.length],
       }))
     : demoDoctors
-  return <div className="page-stack"><PageHeading eyebrow={role === "Patient" ? "YOUR CARE TEAM" : "CLINICAL TEAM"} title={role === "Patient" ? "My doctors" : "Doctor directory"} description={role === "Patient" ? "Meet the clinicians supporting your care." : `${doctors.length} doctors registered${hasLive ? " (live from database)" : ""}.`} action={role === "Administrator" ? <button className="button button-primary" onClick={onAddDoctor}><Plus aria-hidden="true" /> Add doctor</button> : undefined} /><div className="doctor-grid">{doctors.map((doctor) => <article className="surface-card doctor-card" key={doctor.name}><div className="doctor-card-top"><span className={`doctor-avatar avatar-${doctor.tone}`}>{doctor.initials}</span><span className="doctor-availability"><i /> Available</span><button className="icon-button" aria-label={`More options for ${doctor.name}`}><MoreHorizontal aria-hidden="true" /></button></div><h2>{doctor.name}</h2><span className="specialty-label">{doctor.specialty}</span><p className="doctor-qualification">{doctor.qualifications}</p><div className="doctor-meta"><span><strong>{doctor.experience}</strong><small>Experience</small></span><span><strong>{doctor.registration}</strong><small>Registration</small></span></div><div className="doctor-card-footer"><span>{role === "Patient" ? "Your treating physician" : `${doctor.patients} assigned patients`}</span>{role === "Administrator" && <button className="button button-outline button-small" onClick={() => onAssign(doctor.name)}>Assign patient</button>}</div>{role !== "Patient" && <button className="doctor-patients-link" onClick={() => { const target = patients.find((patient) => patient.doctor === doctor.name) ?? patients[0]; if (target) onOpenPatient(target) }}>View assigned patients <ArrowRight aria-hidden="true" /></button>}</article>)}</div></div>
+  return <div className="page-stack"><PageHeading eyebrow={role === "Patient" ? "YOUR CARE TEAM" : "CLINICAL TEAM"} title={role === "Patient" ? "My doctors" : "Doctor directory"} description={role === "Patient" ? "Meet the clinicians supporting your care." : `${doctors.length} doctors registered${hasLive ? " (live from database)" : ""}.`} action={role === "Administrator" ? <button className="button button-primary" onClick={onAddDoctor}><Plus aria-hidden="true" /> Add doctor</button> : undefined} /><div className="doctor-grid">{doctors.map((doctor) => <article className="surface-card doctor-card" key={doctor.name}><div className="doctor-card-top"><span className={`doctor-avatar avatar-${doctor.tone}`}>{doctor.initials}</span><span className="doctor-availability"><i /> Available</span><button className="icon-button" aria-label={`More options for ${doctor.name}`}><MoreHorizontal aria-hidden="true" /></button></div><h2>{doctor.name}</h2><span className="specialty-label">{doctor.specialty}</span><p className="doctor-qualification">{doctor.qualifications}</p><div className="doctor-meta"><span><strong>{doctor.experience}</strong><small>Experience</small></span><span><strong>{doctor.registration}</strong><small>Registration</small></span></div><div className="doctor-card-footer"><span>{role === "Patient" ? "Your treating physician" : `${doctor.patients} assigned patients`}</span>{role === "Administrator" && <button className="button button-outline button-small" onClick={() => onAssign(doctor.name)}>Assign patient</button>}</div>{role !== "Patient" && patients.length > 0 && <button className="doctor-patients-link" onClick={() => onOpenPatient(patients[0])}>View patients directory <ArrowRight aria-hidden="true" /></button>}</article>)}</div></div>
 }
 
 function RecordsPage({ records, patients, role, onAdd, onOpenPatient }: { records: MedicalRecord[]; patients: Patient[]; role: Role; onAdd: () => void; onOpenPatient: (patient: Patient) => void }) {
@@ -905,20 +885,16 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, uploading, 
           <div className="form-grid">
             <Field label="Full name" name="name" required placeholder="Patient full name" defaultValue={patientToEdit?.name} />
             <Field label="Age" name="age" required type="number" placeholder="Age in years" defaultValue={patientToEdit ? String(patientToEdit.age) : undefined} />
-            <SelectField label="Gender" name="gender" options={["Female", "Male", "Non-binary", "Prefer not to say"]} defaultValue={patientToEdit?.gender} />
-            <SelectField label="Blood group" name="bloodGroup" options={["Unknown", "A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"]} defaultValue={patientToEdit?.bloodGroup} />
-            <Field label="Phone number" name="phone" required type="tel" placeholder="+91 98XXX XXXXX" defaultValue={patientToEdit?.phone} />
-            <Field label="Email address" name="email" type="email" required={type === "patient"} placeholder="patient.family@example.com" defaultValue={patientToEdit?.email} />
+            <SelectField label="Gender" name="gender" options={["Female", "Male", "Other"]} defaultValue={patientToEdit?.gender || "Female"} />
             {type === "patient" && (
-              <Field label="Account password" name="password" type="password" required placeholder="Temporary login password for patient / family" />
+              <>
+                <Field label="Family / Patient email" name="email" type="email" required placeholder="patient.family@example.com" />
+                <Field label="Account password" name="password" type="password" required placeholder="Temporary login password for patient / family" />
+              </>
             )}
-            <SelectField label="Department" name="department" options={["Cardiology", "Internal Medicine", "Neurology", "Orthopedics"]} defaultValue={patientToEdit?.department} />
-            <SelectField label="Assigned doctor (optional)" name="doctor" required={false} options={["Unassigned", ...demoDoctors.map((item) => item.name)]} defaultValue={patientToEdit?.doctor || "Unassigned"} />
-            <Field label="Emergency contact" name="emergency" placeholder="Name · phone number" defaultValue={patientToEdit?.emergency} />
-            <Field label="Address" name="address" placeholder="Area, Kolkata" defaultValue={patientToEdit?.address} />
           </div>
           <div className="form-assurance">
-            <LockKeyhole aria-hidden="true" /> Email and password are saved to Users DB (role: PATIENT); healthcare profile is stored in Patient DB.
+            <LockKeyhole aria-hidden="true" /> Name, age, and gender are saved to Patient DB; email and password are saved to Users DB (PATIENT role).
           </div>
         </>
       )}

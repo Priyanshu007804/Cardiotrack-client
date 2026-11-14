@@ -6,15 +6,10 @@ export type Patient = {
   name: string
   age: number
   gender: string
-  phone: string
-  email: string
-  bloodGroup: string
-  department: string
-  doctor: string
-  status: "Active" | "Follow-up"
-  lastVisit: string
-  emergency: string
-  address: string
+  userId?: number
+  email?: string
+  status?: string
+  lastVisit?: string
 }
 
 export type MedicalRecord = {
