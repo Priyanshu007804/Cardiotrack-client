@@ -93,6 +93,97 @@ const specialties = [
   },
 ]
 
+const stackCards = [
+  {
+    number: "01 / 04",
+    category: "Emergency Interventional Hub",
+    title: "Biplane Robotic Cath Lab & Primary Angioplasty",
+    description: "Equipped with ultra-low radiation digital fluoroscopy and 3D Optical Coherence Tomography (OCT). Our rapid-response teams restore blood flow in acute myocardial infarction within a median 15-minute door-to-balloon window.",
+    features: [
+      "Trans-Radial 0% Hematoma Protocol",
+      "Rotational & Orbital Atherectomy",
+      "3D Intravascular Ultrasound (IVUS)",
+      "Fractional Flow Reserve (FFR/iFR)",
+    ],
+    theme: {
+      background: "linear-gradient(135deg, #0e2b3d 0%, #164057 100%)",
+      color: "#f1f8f7",
+      pillBg: "rgba(94, 234, 212, 0.18)",
+      pillColor: "#5eead4",
+      borderColor: "rgba(94, 234, 212, 0.3)",
+    },
+    image: "/cardiac-cath-lab.jpg",
+    tagTitle: "Golden Hour Cath Lab Hub",
+    tagSub: "15-Minute Door-to-Balloon",
+  },
+  {
+    number: "02 / 04",
+    category: "Neural Telemetry & AI Alerts",
+    title: "Continuous Inpatient AI Telemetry Command Center",
+    description: "Every telemetry bed in our coronary care unit is connected directly to our centralized AI neural monitoring center, providing 24/7 predictive alerts for atrial fibrillation, ventricular arrhythmias, and ischemic ST-shifts 45 minutes ahead of clinical onset.",
+    features: [
+      "1,200,000+ Monitored Hours",
+      "Predictive 45-Min Arrhythmia Alerts",
+      "Wireless Hospital-Wide Telemetry",
+      "Instant Cloud EHR Synchronization",
+    ],
+    theme: {
+      background: "linear-gradient(135deg, #0c2338 0%, #153859 100%)",
+      color: "#f1f8f7",
+      pillBg: "rgba(56, 189, 248, 0.18)",
+      pillColor: "#38bdf8",
+      borderColor: "rgba(56, 189, 248, 0.3)",
+    },
+    image: "/ai-telemetry-center.jpg",
+    tagTitle: "24/7 Neural Telemetry",
+    tagSub: "Automated Arrhythmia Triage",
+  },
+  {
+    number: "03 / 04",
+    category: "Minimally Invasive Heart Surgery",
+    title: "Keyhole & Beating-Heart Bypass Surgery (MICS CABG)",
+    description: "Performing multi-vessel bypass surgery through small 2-inch incisions between the ribs without cutting the breastbone. Patients experience virtually no blood loss, minimal post-op pain, and return home within 48 to 72 hours with a 99.4% survival rate.",
+    features: [
+      "Zero Sternal Bone Sawing",
+      "Off-Pump Beating Heart Surgery",
+      "48-Hour Rapid Hospital Discharge",
+      "99.4% Verified Survival Rate",
+    ],
+    theme: {
+      background: "linear-gradient(135deg, #0d2f35 0%, #13464f 100%)",
+      color: "#f1f8f7",
+      pillBg: "rgba(45, 212, 191, 0.18)",
+      pillColor: "#2dd4bf",
+      borderColor: "rgba(45, 212, 191, 0.3)",
+    },
+    image: "/hospital-facade.jpg",
+    tagTitle: "MICS Heart Center",
+    tagSub: "2-Inch Keyhole Bypass",
+  },
+  {
+    number: "04 / 04",
+    category: "Pediatric & Congenital Care",
+    title: "Quaternary Pediatric Heart Center & Fetal Echo",
+    description: "Specialized pediatric interventional cardiologists closing atrial and ventricular septal defects (ASD/VSD) through tiny leg vein punctures without opening the heart. Giving over 4,800 newborn children a second chance at healthy, active lives.",
+    features: [
+      "Scarless Transcatheter Closures",
+      "Early Fetal Cardiac Anomaly Scans",
+      "Tetralogy of Fallot Single-Stage Repair",
+      "Dedicated Pediatric Cardiac ICU",
+    ],
+    theme: {
+      background: "linear-gradient(135deg, #1b1c3d 0%, #292a59 100%)",
+      color: "#f1f8f7",
+      pillBg: "rgba(192, 132, 252, 0.18)",
+      pillColor: "#c084fc",
+      borderColor: "rgba(192, 132, 252, 0.3)",
+    },
+    image: "/cardiac-consultation.jpg",
+    tagTitle: "Children's Heart Institute",
+    tagSub: "4,800+ Kids Saved",
+  },
+]
+
 const specialists = [
   {
     name: "Dr. Arindam Bose",
@@ -208,7 +299,7 @@ export function PublicExperience({ onSignIn }: PublicExperienceProps) {
         <nav className={`public-nav ${menuOpen ? "is-open" : ""}`} aria-label="Main navigation">
           <a href="#specialties" onClick={() => setMenuOpen(false)}>Specialties</a>
           <a href="#milestones" onClick={() => setMenuOpen(false)}>Achievements</a>
-          <a href="#infrastructure" onClick={() => setMenuOpen(false)}>Infrastructure</a>
+          <a href="#pillars" onClick={() => setMenuOpen(false)}>Clinical Pillars</a>
           <a href="#specialists" onClick={() => setMenuOpen(false)}>Specialists</a>
           <a href="#testimonials" onClick={() => setMenuOpen(false)}>Stories</a>
           <button className="button button-outline button-small" onClick={() => onSignIn("Patient")}>
@@ -341,76 +432,85 @@ export function PublicExperience({ onSignIn }: PublicExperienceProps) {
         </div>
       </section>
 
-      {/* State-of-the-Art Infrastructure Showcase (AI Assets) */}
-      <section className="infrastructure-section" id="infrastructure">
-        <div className="section-heading">
+      {/* Sticky Stacking Cards Component (Card Stacking on Scroll) */}
+      <section className="sticky-stack-section" id="pillars">
+        <div className="section-heading sticky-stack-header">
           <div>
-            <div className="eyebrow">WORLD-CLASS MEDICAL INFRASTRUCTURE</div>
-            <h2>Equipped with Next-Generation<br /><em>Robotic & Digital Suites</em></h2>
+            <div className="eyebrow">QUATERNARY CLINICAL PILLARS</div>
+            <h2>Specialized Cardiac Units<br /><em>Stacking Innovations at Every Care Stage</em></h2>
           </div>
-          <p>Explore our quaternary cardiac care facilities built to handle the highest clinical complexity in real time.</p>
+          <p>Scroll down to explore how our specialized departments seamlessly overlap and layer together to provide continuous cardiovascular recovery.</p>
         </div>
 
-        <div className="infra-grid">
-          <motion.article
-            className="infra-card"
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6 }}
-          >
-            <img src="/cardiac-cath-lab.jpg" alt="Hybrid biplane cardiac catheterization laboratory" />
-            <div className="infra-content">
-              <span className="infra-tag">Robotic Cath Lab</span>
-              <h3>Biplane Hybrid Interventional Suite</h3>
-              <p>Equipped with ultra-low dose digital fluoroscopy, intravascular ultrasound (IVUS), and optical coherence tomography (OCT) for pinpoint 3D coronary stenting.</p>
-            </div>
-          </motion.article>
+        <div className="sticky-stack-container">
+          {stackCards.map((card, idx) => (
+            <motion.div
+              key={card.number}
+              className="sticky-stack-card"
+              style={{
+                top: `calc(90px + ${idx * 28}px)`,
+                background: card.theme.background,
+                color: card.theme.color,
+                border: `1px solid ${card.theme.borderColor}`,
+                zIndex: idx + 1,
+              }}
+              initial={{ opacity: 0.9, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5 }}
+            >
+              <div className="stack-card-content">
+                <div className="stack-card-badge-row">
+                  <span className="stack-card-number">{card.number}</span>
+                  <span
+                    className="stack-card-pill"
+                    style={{ background: card.theme.pillBg, color: card.theme.pillColor }}
+                  >
+                    {card.category}
+                  </span>
+                </div>
+                <h3>{card.title}</h3>
+                <p style={{ color: "#c1d5e0" }}>{card.description}</p>
 
-          <motion.article
-            className="infra-card"
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.15 }}
-          >
-            <img src="/ai-telemetry-center.jpg" alt="Centralized AI Cardiac Telemetry Monitoring Center" />
-            <div className="infra-content">
-              <span className="infra-tag">24/7 Command Center</span>
-              <h3>Continuous AI Telemetry & Arrhythmia Center</h3>
-              <p>Multi-screen telemetry command room monitoring real-time ECG waveforms across all inpatient beds, automatically detecting AFib and life-threatening arrhythmias.</p>
-            </div>
-          </motion.article>
+                <div className="stack-card-features">
+                  {card.features.map((feat) => (
+                    <div className="stack-feature-item" key={feat}>
+                      <CheckCircle2 color={card.theme.pillColor} />
+                      <span>{feat}</span>
+                    </div>
+                  ))}
+                </div>
 
-          <motion.article
-            className="infra-card"
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6 }}
-          >
-            <img src="/cardiac-consultation.jpg" alt="Compassionate patient consultation with chief cardiologist" />
-            <div className="infra-content">
-              <span className="infra-tag">Specialist Outpatient Care</span>
-              <h3>Dedicated Cardiac Consultation Suites</h3>
-              <p>Private, unhurried consultations with senior cardiology faculty utilizing interactive 3D anatomical models and real-time electronic health records.</p>
-            </div>
-          </motion.article>
+                <button
+                  className="button button-outline button-small"
+                  style={{
+                    background: "rgba(255,255,255,0.08)",
+                    color: "#fff",
+                    borderColor: card.theme.borderColor,
+                  }}
+                  onClick={() => onSignIn("Patient")}
+                >
+                  Explore Center & Book Triage <ArrowRight size={14} />
+                </button>
+              </div>
 
-          <motion.article
-            className="infra-card"
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.15 }}
-          >
-            <img src="/hospital-facade.jpg" alt="Exterior facade of Shantideep Cardiac Institute" />
-            <div className="infra-content">
-              <span className="infra-tag">Tertiary Campus</span>
-              <h3>Shantideep Institute Main Campus</h3>
-              <p>A 350-bed quaternary cardiology campus located in Salt Lake Sector V with a dedicated emergency ambulance ramp and Level-1 cardiac trauma bay.</p>
-            </div>
-          </motion.article>
+              <div className="stack-card-media">
+                <img src={card.image} alt={card.title} />
+                <div className="stack-media-floating-tag">
+                  <span
+                    className="caption-pulse"
+                    style={{ background: card.theme.pillBg, color: card.theme.pillColor, width: "32px", height: "32px" }}
+                  >
+                    <HeartPulse size={16} />
+                  </span>
+                  <div>
+                    <strong>{card.tagTitle}</strong>
+                    <small>{card.tagSub}</small>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          ))}
         </div>
       </section>
 
