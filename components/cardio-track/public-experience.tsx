@@ -443,74 +443,73 @@ export function PublicExperience({ onSignIn }: PublicExperienceProps) {
         </div>
 
         <div className="sticky-stack-container">
-          {stackCards.map((card, idx) => (
-            <motion.div
-              key={card.number}
-              className="sticky-stack-card"
-              style={{
-                top: `calc(90px + ${idx * 28}px)`,
-                background: card.theme.background,
-                color: card.theme.color,
-                border: `1px solid ${card.theme.borderColor}`,
-                zIndex: idx + 1,
-              }}
-              initial={{ opacity: 0.9, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5 }}
-            >
-              <div className="stack-card-content">
-                <div className="stack-card-badge-row">
-                  <span className="stack-card-number">{card.number}</span>
-                  <span
-                    className="stack-card-pill"
-                    style={{ background: card.theme.pillBg, color: card.theme.pillColor }}
-                  >
-                    {card.category}
-                  </span>
-                </div>
-                <h3>{card.title}</h3>
-                <p style={{ color: "#c1d5e0" }}>{card.description}</p>
+          {stackCards.map((card, idx) => {
+            const stickyTop = 100 + idx * 36
+            return (
+              <div
+                key={card.number}
+                className="sticky-stack-card"
+                style={{
+                  top: `${stickyTop}px`,
+                  background: card.theme.background,
+                  color: card.theme.color,
+                  border: `1px solid ${card.theme.borderColor}`,
+                  zIndex: idx + 10,
+                }}
+              >
+                <div className="stack-card-content">
+                  <div className="stack-card-badge-row">
+                    <span className="stack-card-number">{card.number}</span>
+                    <span
+                      className="stack-card-pill"
+                      style={{ background: card.theme.pillBg, color: card.theme.pillColor }}
+                    >
+                      {card.category}
+                    </span>
+                  </div>
+                  <h3>{card.title}</h3>
+                  <p style={{ color: "#c1d5e0" }}>{card.description}</p>
 
-                <div className="stack-card-features">
-                  {card.features.map((feat) => (
-                    <div className="stack-feature-item" key={feat}>
-                      <CheckCircle2 color={card.theme.pillColor} />
-                      <span>{feat}</span>
+                  <div className="stack-card-features">
+                    {card.features.map((feat) => (
+                      <div className="stack-feature-item" key={feat}>
+                        <CheckCircle2 color={card.theme.pillColor} />
+                        <span>{feat}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    className="button button-outline button-small"
+                    style={{
+                      background: "rgba(255,255,255,0.08)",
+                      color: "#fff",
+                      borderColor: card.theme.borderColor,
+                    }}
+                    onClick={() => onSignIn("Patient")}
+                  >
+                    Explore Center & Book Triage <ArrowRight size={14} />
+                  </button>
+                </div>
+
+                <div className="stack-card-media">
+                  <img src={card.image} alt={card.title} />
+                  <div className="stack-media-floating-tag">
+                    <span
+                      className="caption-pulse"
+                      style={{ background: card.theme.pillBg, color: card.theme.pillColor, width: "32px", height: "32px" }}
+                    >
+                      <HeartPulse size={16} />
+                    </span>
+                    <div>
+                      <strong>{card.tagTitle}</strong>
+                      <small>{card.tagSub}</small>
                     </div>
-                  ))}
-                </div>
-
-                <button
-                  className="button button-outline button-small"
-                  style={{
-                    background: "rgba(255,255,255,0.08)",
-                    color: "#fff",
-                    borderColor: card.theme.borderColor,
-                  }}
-                  onClick={() => onSignIn("Patient")}
-                >
-                  Explore Center & Book Triage <ArrowRight size={14} />
-                </button>
-              </div>
-
-              <div className="stack-card-media">
-                <img src={card.image} alt={card.title} />
-                <div className="stack-media-floating-tag">
-                  <span
-                    className="caption-pulse"
-                    style={{ background: card.theme.pillBg, color: card.theme.pillColor, width: "32px", height: "32px" }}
-                  >
-                    <HeartPulse size={16} />
-                  </span>
-                  <div>
-                    <strong>{card.tagTitle}</strong>
-                    <small>{card.tagSub}</small>
                   </div>
                 </div>
               </div>
-            </motion.div>
-          ))}
+            )
+          })}
         </div>
       </section>
 
