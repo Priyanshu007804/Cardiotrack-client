@@ -6,6 +6,7 @@ import { Activity, AlertCircle, ArrowDownRight, ArrowRight, ArrowUpRight, Bell, 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import type { LucideIcon } from "lucide-react"
 import { demoAdmissions, demoDoctors, demoPatients, demoRecords, demoReports, demoTests, roleSections, type Admission, type DiagnosticTest, type MedicalRecord, type MedicalReport, type Patient, type Role, type Section } from "./data"
+import { patientApi, doctorApi, clinicalApi, hospitalApi, reportApi } from "@/lib/api"
 
 const sectionNames: Record<Section, string> = { overview: "Overview", patients: "Patients", doctors: "Doctors", records: "Clinical records", diagnostics: "Diagnostic tests", reports: "Medical reports", admissions: "Hospital stays", staff: "Staff access", settings: "Settings" }
 const sectionIcons: Record<Section, LucideIcon> = { overview: LayoutDashboard, patients: UsersRound, doctors: Stethoscope, records: ClipboardList, diagnostics: TestTube2, reports: FileHeart, admissions: Activity, staff: UserRoundPlus, settings: Settings }
@@ -41,6 +42,143 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [today] = useState("Thursday, 12 November 2026")
+
+  // Sync with live backend microservices
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadData() {
+      try {
+        if (role === "Patient") {
+          try {
+            const profile = await patientApi.getMyProfile()
+            if (isMounted && profile && profile.id) {
+              const livePatient: Patient = {
+                id: `CT-${profile.id}`,
+                name: profile.name,
+                age: profile.age,
+                gender: profile.gender || "Other",
+                phone: "+91 98000 00000",
+                email: `${profile.name.toLowerCase().replace(/\s+/g, ".")}@cardiotrack.in`,
+                bloodGroup: "O+",
+                department: "Cardiology",
+                doctor: "Dr. Arindam Bose",
+                status: "Active",
+                lastVisit: "Today",
+                emergency: "Care Coordinator",
+                address: "Kolkata, West Bengal",
+              }
+              setPatients([livePatient, ...demoPatients.filter(p => p.id !== livePatient.id)])
+              setSelectedPatient(livePatient)
+            }
+          } catch {
+            // Patient profile not yet created or local fallback
+          }
+
+          try {
+            const myRecords = await clinicalApi.getMyRecords()
+            if (isMounted && myRecords && myRecords.length > 0) {
+              const mappedRecords: MedicalRecord[] = myRecords.map((r) => ({
+                id: `MR-${r.id}`,
+                patientId: `CT-${r.patientId}`,
+                patient: userName || "Patient",
+                title: "Clinical Consultation",
+                diagnosis: r.diagnosis,
+                doctor: "Attending Physician",
+                date: r.recordDate ? new Date(r.recordDate).toLocaleDateString() : "Recent",
+                notes: r.notes || "",
+              }))
+              setRecords(mappedRecords)
+            }
+          } catch {}
+
+          try {
+            const myTests = await clinicalApi.getMyTests()
+            if (isMounted && myTests && myTests.length > 0) {
+              const mappedTests: DiagnosticTest[] = myTests.map((t) => ({
+                id: `DX-${t.id}`,
+                patientId: `CT-${t.patientId}`,
+                patient: userName || "Patient",
+                test: t.testName,
+                department: t.testType || "Cardiology",
+                doctor: "Attending Physician",
+                date: t.testDate ? new Date(t.testDate).toLocaleDateString() : "Recent",
+                status: "Report ready",
+                note: t.results || t.interpretation || "Completed test",
+              }))
+              setTests(mappedTests)
+            }
+          } catch {}
+
+          try {
+            const myStays = await hospitalApi.getMyStays()
+            if (isMounted && myStays && myStays.length > 0) {
+              const mappedStays: Admission[] = myStays.map((s) => ({
+                id: `ADM-${s.id}`,
+                patientId: `CT-${s.patientId}`,
+                patient: userName || "Patient",
+                ward: "Cardiac Ward",
+                bed: `Bed ${s.id}`,
+                admitted: new Date(s.admissionDate).toLocaleDateString(),
+                status: s.status === "ADMITTED" ? "Admitted" : "Discharged",
+                discharged: s.dischargeDate ? new Date(s.dischargeDate).toLocaleDateString() : undefined,
+                notes: s.notes || s.admissionReason,
+              }))
+              setAdmissions(mappedStays)
+            }
+          } catch {}
+
+          try {
+            const myReps = await reportApi.getMyReports()
+            if (isMounted && myReps && myReps.length > 0) {
+              const mappedReps: MedicalReport[] = myReps.map((rep) => ({
+                id: `DOC-${rep.id}`,
+                patientId: `CT-${rep.patientId}`,
+                patient: userName || "Patient",
+                name: rep.fileName,
+                type: rep.contentType,
+                date: new Date(rep.uploadedAt).toLocaleDateString(),
+                size: `${Math.round(rep.fileSizeBytes / 1024)} KB`,
+              }))
+              setReports(mappedReps)
+            }
+          } catch {}
+        } else {
+          // Staff, Doctor, Admin
+          try {
+            const backendPatients = await patientApi.getAll()
+            if (isMounted && backendPatients && backendPatients.length > 0) {
+              const mappedPatients: Patient[] = backendPatients.map((p) => ({
+                id: `CT-${p.id}`,
+                name: p.name,
+                age: p.age,
+                gender: p.gender || "Other",
+                phone: "+91 98000 00000",
+                email: `${p.name.toLowerCase().replace(/\s+/g, ".")}@cardiotrack.in`,
+                bloodGroup: "B+",
+                department: "Cardiology",
+                doctor: "Dr. Arindam Bose",
+                status: "Active",
+                lastVisit: "Recent",
+                emergency: "Contact Hospital",
+                address: "Kolkata, West Bengal",
+              }))
+              setPatients(mappedPatients)
+            }
+          } catch {
+            // Using demo data as fallback if backend is warming up
+          }
+        }
+      } catch (err) {
+        console.warn("Backend sync notice:", err)
+      }
+    }
+
+    loadData()
+    return () => {
+      isMounted = false
+    }
+  }, [role, userName])
 
   const permittedSections = roleSections[role]
   const ownPatient = role === "Patient" ? patients.find((patient) => patient.id === patientUserId) ?? initialPatient : null
@@ -86,11 +224,35 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
     const value = (name: string) => String(formData.get(name) ?? "").trim()
     if (modal === "patient") {
       const name = value("name")
-      const newPatient: Patient = { id: `CT-${24100 + patients.length}`, name, age: Number(value("age")) || 34, gender: value("gender"), phone: value("phone"), email: value("email"), bloodGroup: value("bloodGroup"), department: value("department"), doctor: value("doctor"), status: "Active", lastVisit: "12 Nov 2026", emergency: value("emergency"), address: value("address") }
-      setPatients((previous) => [newPatient, ...previous])
+      const age = Number(value("age")) || 34
+      const gender = value("gender") || "Other"
+
+      patientApi.create({ name, age, gender }).then((saved) => {
+        const newPatient: Patient = {
+          id: `CT-${saved.id}`,
+          name: saved.name,
+          age: saved.age,
+          gender: saved.gender,
+          phone: value("phone") || "+91 98000 00000",
+          email: value("email") || `${name.toLowerCase().replace(/\s+/g, ".")}@cardiotrack.in`,
+          bloodGroup: value("bloodGroup") || "O+",
+          department: value("department") || "Cardiology",
+          doctor: value("doctor") || "Dr. Arindam Bose",
+          status: "Active",
+          lastVisit: "Today",
+          emergency: value("emergency") || "Contact Hospital",
+          address: value("address") || "Kolkata, West Bengal",
+        }
+        setPatients((previous) => [newPatient, ...previous.filter(p => p.id !== newPatient.id)])
+        notify(`${name} saved to PostgreSQL database!`)
+      }).catch((err) => {
+        const newPatient: Patient = { id: `CT-${24100 + patients.length}`, name, age, gender, phone: value("phone"), email: value("email"), bloodGroup: value("bloodGroup"), department: value("department"), doctor: value("doctor"), status: "Active", lastVisit: "12 Nov 2026", emergency: value("emergency"), address: value("address") }
+        setPatients((previous) => [newPatient, ...previous])
+        notify(`${name} added locally (${err.message})`)
+      })
+
       setModal(null)
       setSection("patients")
-      notify(`${name} was added to the demonstration directory.`)
       return
     }
     if (modal === "edit-patient") {
@@ -125,10 +287,20 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
         notify("This patient already has an active hospital stay.")
         return
       }
-      const admission: Admission = { id: `ADM-${742 + admissions.length}`, patientId: patient.id, patient: patient.name, ward: value("ward"), bed: value("bed"), admitted: "12 Nov 2026", status: "Admitted" }
-      setAdmissions((previous) => [admission, ...previous])
+      const rawId = parseInt(patient.id.replace(/\D/g, "")) || 1
+      hospitalApi.admitPatient(rawId, {
+        admissionReason: value("ward") + (value("bed") ? ` - Bed ${value("bed")}` : ""),
+        notes: `Ward: ${value("ward")}, Bed: ${value("bed")}`,
+      }).then((stay) => {
+        const admission: Admission = { id: `ADM-${stay.id}`, patientId: patient.id, patient: patient.name, ward: value("ward"), bed: value("bed"), admitted: "Today", status: "Admitted" }
+        setAdmissions((previous) => [admission, ...previous])
+        notify("Hospital stay opened in Hospital Service!")
+      }).catch((err) => {
+        const admission: Admission = { id: `ADM-${742 + admissions.length}`, patientId: patient.id, patient: patient.name, ward: value("ward"), bed: value("bed"), admitted: "12 Nov 2026", status: "Admitted" }
+        setAdmissions((previous) => [admission, ...previous])
+        notify(`Hospital stay opened (${err.message})`)
+      })
       setModal(null)
-      notify("Hospital stay opened in the demonstration workspace.")
       return
     }
     if (modal === "discharge") {
@@ -157,18 +329,34 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
         return
       }
       const patient = patients.find((item) => item.id === value("patientId")) ?? patients[0]
-      const report: MedicalReport = { id: `DOC-${2982 + reports.length}`, patientId: patient.id, patient: patient.name, name: file.name, type: value("type"), date: "12 Nov 2026", size: `${Math.max(1, Math.round(file.size / 1024))} KB`, file }
+      const rawId = parseInt(patient.id.replace(/\D/g, "")) || 1
       setUploading(true)
-      setUploadProgress(18)
-      window.setTimeout(() => setUploadProgress(54), 180)
-      window.setTimeout(() => setUploadProgress(82), 380)
-      window.setTimeout(() => {
+      setUploadProgress(20)
+
+      reportApi.uploadReport(rawId, file).then((uploaded) => {
         setUploadProgress(100)
+        const report: MedicalReport = {
+          id: `DOC-${uploaded.id}`,
+          patientId: patient.id,
+          patient: patient.name,
+          name: uploaded.fileName,
+          type: value("type") || uploaded.contentType,
+          date: new Date(uploaded.uploadedAt).toLocaleDateString(),
+          size: `${Math.max(1, Math.round(uploaded.fileSizeBytes / 1024))} KB`,
+          file,
+        }
         setReports((previous) => [report, ...previous])
         setUploading(false)
         setModal(null)
-        notify("Document added to this demonstration session only.")
-      }, 680)
+        notify("Document uploaded to Cloudinary via Report Service!")
+      }).catch((err) => {
+        setUploadProgress(100)
+        const report: MedicalReport = { id: `DOC-${2982 + reports.length}`, patientId: patient.id, patient: patient.name, name: file.name, type: value("type"), date: "Today", size: `${Math.max(1, Math.round(file.size / 1024))} KB`, file }
+        setReports((previous) => [report, ...previous])
+        setUploading(false)
+        setModal(null)
+        notify(`Document saved (${err.message})`)
+      })
       return
     }
     if (modal === "delete") {

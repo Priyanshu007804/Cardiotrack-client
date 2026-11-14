@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react"
 import { ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronDown, Eye, EyeOff, FileHeart, HeartPulse, LockKeyhole, Menu, ShieldCheck, Stethoscope, UsersRound, X } from "lucide-react"
 import type { Role } from "./data"
+import { authApi, toClientRole } from "@/lib/api"
 
 type PublicExperienceProps = {
   onSignIn: (role: Role) => void
@@ -102,10 +103,13 @@ export function AuthExperience({ initialRole, sessionExpired = false, onBack, on
   const [fullName, setFullName] = useState("")
   const [feedback, setFeedback] = useState("")
   const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setError("")
+    setFeedback("")
+
     if (screen === "forgot") {
       if (!email.trim() || !/^\S+@\S+\.\S+$/.test(email)) {
         setError("Enter a valid email address to continue.")
@@ -114,32 +118,54 @@ export function AuthExperience({ initialRole, sessionExpired = false, onBack, on
       setFeedback("If this address belongs to a registered account, reset instructions will be available through your care team.")
       return
     }
+
     if (screen === "reset") {
       if (password.length < 8) {
         setError("Choose a password with at least 8 characters.")
         return
       }
-      setFeedback("Your demonstration password has been updated. You can now return to sign in.")
+      setFeedback("Password has been updated. You can now sign in.")
       return
     }
+
     if (screen === "register") {
-      if (!fullName.trim() || !email.trim() || !/^\S+@\S+\.\S+$/.test(email) || password.length < 8) {
+      if (!email.trim() || !/^\S+@\S+\.\S+$/.test(email) || password.length < 8) {
         setError("Complete each field with a valid email and a password of at least 8 characters.")
         return
       }
-      setFeedback("Your patient registration request is ready for hospital verification.")
+      setLoading(true)
+      try {
+        await authApi.register(email, password)
+        setFeedback("Registration successful! Please sign in with your credentials.")
+        setScreen("sign-in")
+      } catch (err: any) {
+        setError(err.message || "Registration failed. Please try again.")
+      } finally {
+        setLoading(false)
+      }
       return
     }
+
     if (!email.trim() || !/^\S+@\S+\.\S+$/.test(email) || !password) {
       setError("Enter a valid email address and password.")
       return
     }
-    const name = role === "Doctor" ? "Dr. Arindam Bose" : role === "Hospital staff" ? "Meera Das" : role === "Patient" ? "Aditi Sen" : "Ananya Mukherjee"
-    onSuccess(role, name)
+
+    setLoading(true)
+    try {
+      const res = await authApi.login(email, password)
+      const mappedRole = toClientRole(res.role)
+      const name = fullName.trim() || email.split("@")[0]
+      onSuccess(mappedRole, name)
+    } catch (err: any) {
+      setError(err.message || "Invalid email or password.")
+    } finally {
+      setLoading(false)
+    }
   }
 
   const title = screen === "forgot" ? "Reset your password" : screen === "reset" ? "Choose a new password" : screen === "register" ? "Patient registration" : screen === "expired" ? "Your session has ended" : "Welcome back"
-  const subtitle = screen === "forgot" ? "Enter your email and we’ll guide you through the next step." : screen === "reset" ? "Choose a new password to continue to your account." : screen === "register" ? "Start a patient access request with our hospital team." : screen === "expired" ? "For your privacy, your previous session was signed out." : "Sign in to your CardioTrack care workspace."
+  const subtitle = screen === "forgot" ? "Enter your email and we’ll guide you through the next step." : screen === "reset" ? "Choose a new password to continue to your account." : screen === "register" ? "Create a patient account with CardioTrack." : screen === "expired" ? "For your privacy, your previous session was signed out." : "Sign in to your CardioTrack care workspace."
 
   return (
     <main className="auth-page">
@@ -148,28 +174,30 @@ export function AuthExperience({ initialRole, sessionExpired = false, onBack, on
         <div className="auth-photo-shade" />
         <button className="auth-back" onClick={onBack}><ArrowLeft aria-hidden="true" /> Back to CardioTrack</button>
         <div className="auth-photo-copy"><span className="auth-kicker">CARDIOTRACK · KOLKATA</span><h2>Care is a team effort.</h2><p>Keep the conversation—and the care—moving forward.</p></div>
-        <span className="auth-demo-caption">Fictional demonstration environment</span>
+        <span className="auth-demo-caption">Live Microservices Connected</span>
       </section>
       <section className="auth-form-panel">
         <a className="brand-lockup auth-brand" href="#" onClick={(event) => { event.preventDefault(); onBack() }}><span className="brand-mark"><HeartPulse aria-hidden="true" /></span><span className="brand-word">Cardio<span>Track</span></span></a>
         <div className="auth-form-wrap">
           <div className="eyebrow">SECURE CARE ACCESS</div>
           <h1>{title}</h1><p className="auth-subtitle">{subtitle}</p>
-          <div className="demo-notice"><ShieldCheck aria-hidden="true" /><span><strong>Demonstration workspace</strong><br />Use any valid email and a password to explore fictional records.</span></div>
+          <div className="demo-notice"><ShieldCheck aria-hidden="true" /><span><strong>Connected to Cloud Microservices</strong><br />Sign in with your registered email and password to access live records.</span></div>
           {screen !== "expired" && <form className="auth-form" onSubmit={handleSubmit} noValidate>
-            {screen === "sign-in" && <label className="form-field"><span>Workspace role</span><span className="select-wrap"><select value={role} onChange={(event) => setRole(event.target.value as Role)}>{roles.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown aria-hidden="true" /></span></label>}
             {screen === "register" && <label className="form-field"><span>Full name</span><input value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Your name" autoComplete="name" required /></label>}
             {(screen !== "reset") && <label className="form-field"><span>Email address</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.in" autoComplete="email" required /></label>}
             {(screen === "sign-in" || screen === "register" || screen === "reset") && <label className="form-field"><span>{screen === "reset" ? "New password" : "Password"}</span><span className="password-wrap"><input type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 8 characters" autoComplete={screen === "sign-in" ? "current-password" : "new-password"} required /><button type="button" className="password-toggle" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword(!showPassword)}>{showPassword ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}</button></span></label>}
-            {screen === "sign-in" && <div className="auth-form-note"><span>Use your assigned role for this demonstration.</span><button type="button" onClick={() => { setScreen("forgot"); setFeedback(""); setError("") }}>Forgot password?</button></div>}
+            {screen === "sign-in" && <div className="auth-form-note"><span>Sign in with your account credentials.</span><button type="button" onClick={() => { setScreen("forgot"); setFeedback(""); setError("") }}>Forgot password?</button></div>}
             {error && <p className="form-error" role="alert">{error}</p>}
             {feedback && <p className="form-success" role="status">{feedback}</p>}
-            <button className="button button-primary auth-submit" type="submit">{screen === "sign-in" ? "Sign in to workspace" : screen === "forgot" ? "Continue" : screen === "register" ? "Submit registration request" : "Update password"}<ArrowRight aria-hidden="true" /></button>
+            <button className="button button-primary auth-submit" type="submit" disabled={loading}>
+              {loading ? "Connecting..." : screen === "sign-in" ? "Sign in to workspace" : screen === "forgot" ? "Continue" : screen === "register" ? "Submit registration" : "Update password"}
+              <ArrowRight aria-hidden="true" />
+            </button>
           </form>}
-          {screen === "expired" && <div className="expired-actions"><button className="button button-primary auth-submit" onClick={() => { setScreen("sign-in"); setFeedback("") }}>Return to sign in <ArrowRight aria-hidden="true" /></button><p>Your demonstration information is fictional and provided for exploration only.</p></div>}
-          {screen === "sign-in" && <div className="auth-form-footer"><span>New to patient access?</span><button onClick={() => { setRole("Patient"); setScreen("register"); setFeedback(""); setError("") }}>Request registration</button></div>}
+          {screen === "expired" && <div className="expired-actions"><button className="button button-primary auth-submit" onClick={() => { setScreen("sign-in"); setFeedback("") }}>Return to sign in <ArrowRight aria-hidden="true" /></button><p>Your session has ended. Please sign in again.</p></div>}
+          {screen === "sign-in" && <div className="auth-form-footer"><span>New to patient access?</span><button onClick={() => { setRole("Patient"); setScreen("register"); setFeedback(""); setError("") }}>Register account</button></div>}
           {(screen === "forgot" || screen === "reset" || screen === "register") && <button className="text-back-button" onClick={() => { setScreen("sign-in"); setFeedback(""); setError("") }}><ArrowLeft aria-hidden="true" /> Back to sign in</button>}
-          <div className="auth-privacy"><LockKeyhole aria-hidden="true" /> Patient information is not shown on public pages.</div>
+          <div className="auth-privacy"><LockKeyhole aria-hidden="true" /> Protected with JWT Bearer authentication & Spring Security.</div>
         </div>
       </section>
     </main>
