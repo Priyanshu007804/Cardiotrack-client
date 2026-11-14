@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type FormEvent } from "react"
+import { useState, useEffect, type FormEvent } from "react"
 import { ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronDown, Eye, EyeOff, FileHeart, HeartPulse, LockKeyhole, Menu, ShieldCheck, Stethoscope, UsersRound, X } from "lucide-react"
 import type { Role } from "./data"
 import { authApi, toClientRole } from "@/lib/api"
