@@ -27,6 +27,13 @@ export interface AuthResponseDTO {
   token?: string;
 }
 
+export interface UserSummaryDTO {
+  id: number;
+  email: string;
+  role: BackendRole;
+  enabled: boolean;
+}
+
 export interface PatientDTO {
   id: number;
   name: string;
@@ -254,6 +261,16 @@ export const authApi = {
     return request<AuthResponseDTO>("/api/auth/admin/patients", {
       method: "POST",
       body: JSON.stringify({ email, password }),
+    });
+  },
+
+  async getAllUsers(): Promise<UserSummaryDTO[]> {
+    return request<UserSummaryDTO[]>("/api/auth/admin/users");
+  },
+
+  async updateUserRole(userId: number | string, role: BackendRole): Promise<AuthResponseDTO> {
+    return request<AuthResponseDTO>(`/api/auth/admin/users/${userId}/role?role=${role}`, {
+      method: "PUT",
     });
   },
 

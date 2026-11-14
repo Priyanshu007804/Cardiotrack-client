@@ -6,7 +6,7 @@ import { Activity, AlertCircle, ArrowDownRight, ArrowRight, ArrowUpRight, Bell, 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import type { LucideIcon } from "lucide-react"
 import { demoDoctors, roleSections, type Admission, type DiagnosticTest, type MedicalRecord, type MedicalReport, type Patient, type Role, type Section } from "./data"
-import { patientApi, doctorApi, clinicalApi, hospitalApi, reportApi, authApi, type DoctorDTO } from "@/lib/api"
+import { patientApi, doctorApi, clinicalApi, hospitalApi, reportApi, authApi, type DoctorDTO, type UserSummaryDTO } from "@/lib/api"
 
 const sectionNames: Record<Section, string> = { overview: "Overview", patients: "Patients", doctors: "Doctors", records: "Clinical records", diagnostics: "Diagnostic tests", reports: "Medical reports", admissions: "Hospital stays", staff: "Staff access", settings: "Settings" }
 const sectionIcons: Record<Section, LucideIcon> = { overview: LayoutDashboard, patients: UsersRound, doctors: Stethoscope, records: ClipboardList, diagnostics: TestTube2, reports: FileHeart, admissions: Activity, staff: UserRoundPlus, settings: Settings }
@@ -38,6 +38,7 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
   const [previewReport, setPreviewReport] = useState<MedicalReport | null>(null)
   const [liveDoctors, setLiveDoctors] = useState<DoctorDTO[]>([])
   const [newAccountUserId, setNewAccountUserId] = useState<number | null>(null)
+  const [systemUsers, setSystemUsers] = useState<UserSummaryDTO[]>([])
   const [menuOpen, setMenuOpen] = useState<"profile" | "notifications" | null>(null)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
@@ -177,6 +178,17 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
           } catch {
             // Doctor service may be warming up
           }
+
+          if (role === "Administrator") {
+            try {
+              const users = await authApi.getAllUsers()
+              if (isMounted && users) {
+                setSystemUsers(users)
+              }
+            } catch {
+              // Users service may be warming up
+            }
+          }
         }
       } catch (err) {
         console.warn("Backend sync notice:", err)
@@ -221,6 +233,11 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
     setModal(next)
     setUploadProgress(0)
     setUploading(false)
+    if (next === "create-doctor" || next === "create-staff") {
+      authApi.getAllUsers().then((users) => {
+        if (users) setSystemUsers(users)
+      }).catch(() => {})
+    }
   }
   const openPatientEdit = (patient: Patient) => {
     setTargetId(patient.id)
@@ -374,6 +391,23 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
       notify("Document removed from this demonstration session.")
     }
     if (modal === "create-doctor") {
+      const isExisting = formData.get("isExisting") === "on"
+      if (isExisting) {
+        const selectedUserId = Number(value("selectedUserId"))
+        if (!selectedUserId) {
+          notify("Please select an existing user to promote.")
+          return
+        }
+        authApi.updateUserRole(selectedUserId, "DOCTOR").then((res) => {
+          setNewAccountUserId(selectedUserId)
+          setModal("create-doctor-profile")
+          notify(`User #${selectedUserId} (${res.email}) promoted to DOCTOR! Now complete the clinical profile.`)
+        }).catch((err) => {
+          notify(`Failed to promote user: ${err.message}`)
+        })
+        return
+      }
+
       const email = value("email")
       const password = value("password")
       authApi.createDoctorAccount(email, password).then((res) => {
@@ -407,6 +441,22 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
       return
     }
     if (modal === "create-staff") {
+      const isExisting = formData.get("isExisting") === "on"
+      if (isExisting) {
+        const selectedUserId = Number(value("selectedUserId"))
+        if (!selectedUserId) {
+          notify("Please select an existing user to promote.")
+          return
+        }
+        authApi.updateUserRole(selectedUserId, "STAFF").then((res) => {
+          notify(`User #${selectedUserId} (${res.email}) successfully promoted to STAFF role!`)
+          setModal(null)
+        }).catch((err) => {
+          notify(`Failed to promote user: ${err.message}`)
+        })
+        return
+      }
+
       const email = value("email")
       const password = value("password")
       authApi.createStaffAccount(email, password).then((res) => {
@@ -484,7 +534,7 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
         </div>
       </div>
       {toast && <div className="toast-message" role="status"><span><Check aria-hidden="true" /></span>{toast}<button aria-label="Dismiss notification" onClick={() => setToast("")}><X aria-hidden="true" /></button></div>}
-      {modal && <ActionDialog type={modal} role={role} patients={patients} patientToEdit={modal === "edit-patient" ? selectedPatient ?? undefined : undefined} doctor={modalDoctor} uploading={uploading} uploadProgress={uploadProgress} onClose={() => !uploading && setModal(null)} onSubmit={handleModalSubmit} onDelete={() => { setReports((previous) => previous.filter((report) => report.id !== targetId)); setModal(null); notify("Document removed from this demonstration session.") }} />}
+      {modal && <ActionDialog type={modal} role={role} patients={patients} patientToEdit={modal === "edit-patient" ? selectedPatient ?? undefined : undefined} doctor={modalDoctor} uploading={uploading} uploadProgress={uploadProgress} systemUsers={systemUsers} onClose={() => !uploading && setModal(null)} onSubmit={handleModalSubmit} onDelete={() => { setReports((previous) => previous.filter((report) => report.id !== targetId)); setModal(null); notify("Document removed from this demonstration session.") }} />}
       {previewReport && <ReportDialog report={previewReport} onClose={() => setPreviewReport(null)} />}
     </main>
   )
@@ -683,7 +733,18 @@ function AdmissionList({ admissions }: { admissions: Admission[] }) { return <di
 function StatusPill({ status }: { status: string }) { const tone = /admitted|active|ready|documented/i.test(status) ? "green" : /follow|scheduled/i.test(status) ? "amber" : /progress/i.test(status) ? "blue" : "neutral"; return <span className={`status-pill status-${tone}`}><i />{status}</span> }
 function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state"><span><Search aria-hidden="true" /></span><strong>{title}</strong><p>{text}</p></div> }
 
-function ActionDialog({ type, role, patients, patientToEdit, doctor, uploading, uploadProgress, onClose, onSubmit, onDelete }: { type: Exclude<ModalType, null>; role: Role; patients: Patient[]; patientToEdit?: Patient; doctor: string; uploading: boolean; uploadProgress: number; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onDelete: () => void }) {
+function ActionDialog({ type, role, patients, patientToEdit, doctor, uploading, uploadProgress, systemUsers = [], onClose, onSubmit, onDelete }: { type: Exclude<ModalType, null>; role: Role; patients: Patient[]; patientToEdit?: Patient; doctor: string; uploading: boolean; uploadProgress: number; systemUsers?: UserSummaryDTO[]; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onDelete: () => void }) {
+  const [isExisting, setIsExisting] = useState(false)
+  const [userSearch, setUserSearch] = useState("")
+  const [selectedUserId, setSelectedUserId] = useState<number | "">("")
+
+  const filteredUsers = useMemo(() => {
+    if (!systemUsers) return []
+    return systemUsers.filter((u) =>
+      u.email.toLowerCase().includes(userSearch.toLowerCase())
+    )
+  }, [systemUsers, userSearch])
+
   const titles: Record<Exclude<ModalType, null>, string> = {
     patient: "Register a patient",
     "edit-patient": "Edit patient details",
@@ -694,9 +755,9 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, uploading, 
     discharge: "Confirm discharge",
     assign: "Assign patient to doctor",
     delete: "Remove document",
-    "create-doctor": "Create Doctor Account",
+    "create-doctor": isExisting ? "Promote Existing User to Doctor" : "Create Doctor Account",
     "create-doctor-profile": "Create Doctor Clinical Profile",
-    "create-staff": "Create Staff Account",
+    "create-staff": isExisting ? "Promote Existing User to Staff" : "Create Staff Account",
     "create-patient-account": "Create Patient Account",
   }
   const descriptions: Record<Exclude<ModalType, null>, string> = {
@@ -709,9 +770,9 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, uploading, 
     discharge: "Record the discharge note after confirming the care transition.",
     assign: `Select a patient for ${doctor}.`,
     delete: "This action removes the selected document.",
-    "create-doctor": "Provision a Doctor login account with DOCTOR role in Auth Service.",
+    "create-doctor": isExisting ? "Select an existing registered user to update their role to DOCTOR." : "Provision a new Doctor login account with DOCTOR role in Auth Service.",
     "create-doctor-profile": "Save doctor qualifications and specialization in Doctor Service.",
-    "create-staff": "Provision a Staff login account with STAFF role in Auth Service.",
+    "create-staff": isExisting ? "Select an existing registered user to update their role to STAFF." : "Provision a new Staff login account with STAFF role in Auth Service.",
     "create-patient-account": "Provision a Patient login account with PATIENT role in Auth Service.",
   }
   const choices = patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name} · {patient.id}</option>)
@@ -721,13 +782,75 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, uploading, 
     {type === "delete" ? <div className="dialog-body"><div className="sensitive-action-note"><AlertCircle aria-hidden="true" /><span>Document deletion is restricted to authorized users. This action cannot be undone.</span></div><div className="dialog-actions"><button className="button button-outline" onClick={onClose}>Cancel</button><button className="button button-danger" onClick={onDelete}>Remove document</button></div></div> : <form className="dialog-form" onSubmit={onSubmit}>
       {(type === "create-doctor" || type === "create-staff" || type === "create-patient-account") && (
         <>
-          <div className="form-grid">
-            <Field label="Email address" name="email" type="email" required placeholder="user@cardiotrack.com" />
-            <Field label="Password" name="password" type="password" required placeholder="Minimum 6 characters" />
-          </div>
-          <div className="form-assurance">
-            <LockKeyhole aria-hidden="true" /> Provisioned in Neon PostgreSQL database with role: <strong>{type === "create-doctor" ? "DOCTOR" : type === "create-staff" ? "STAFF" : "PATIENT"}</strong>
-          </div>
+          {(type === "create-doctor" || type === "create-staff") && (
+            <div style={{ marginBottom: "1.25rem", padding: "0.85rem 1rem", background: "rgba(13, 148, 136, 0.05)", borderRadius: "8px", border: "1px solid rgba(13, 148, 136, 0.2)" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", fontWeight: 600, color: "var(--foreground, #0f172a)" }}>
+                <input
+                  type="checkbox"
+                  name="isExisting"
+                  checked={isExisting}
+                  onChange={(e) => {
+                    setIsExisting(e.target.checked)
+                    setSelectedUserId("")
+                    setUserSearch("")
+                  }}
+                  style={{ width: "1.15rem", height: "1.15rem", cursor: "pointer", accentColor: "var(--teal, #0d9488)" }}
+                />
+                <span>Existing account? (Promote role from Users DB)</span>
+              </label>
+              <p style={{ margin: "0.35rem 0 0 1.75rem", fontSize: "0.82rem", color: "var(--text-muted, #64748b)", lineHeight: "1.3" }}>
+                Check this box to update the role of an existing account in PostgreSQL via a <strong>PUT</strong> operation instead of registering a new email.
+              </p>
+            </div>
+          )}
+
+          {isExisting ? (
+            <div className="form-grid" style={{ gridTemplateColumns: "1fr" }}>
+              <label className="form-field">
+                <span>Search existing user by email</span>
+                <input
+                  type="text"
+                  placeholder="Type email to search in database..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                />
+              </label>
+
+              <label className="form-field">
+                <span>Select registered account <i>*</i></span>
+                <span className="select-wrap">
+                  <select
+                    name="selectedUserId"
+                    required
+                    value={selectedUserId}
+                    onChange={(e) => setSelectedUserId(Number(e.target.value))}
+                  >
+                    <option value="">-- Choose account ({filteredUsers.length} available) --</option>
+                    {filteredUsers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.email} (Current Role: {u.role}) — ID #{u.id}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown aria-hidden="true" />
+                </span>
+              </label>
+
+              <div className="form-assurance">
+                <ShieldCheck aria-hidden="true" /> Submitting will execute a <strong>PUT</strong> request to update role to <strong>{type === "create-doctor" ? "DOCTOR" : "STAFF"}</strong> in users table.
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="form-grid">
+                <Field label="Email address" name="email" type="email" required placeholder="user@cardiotrack.com" />
+                <Field label="Password" name="password" type="password" required placeholder="Minimum 6 characters" />
+              </div>
+              <div className="form-assurance">
+                <LockKeyhole aria-hidden="true" /> Provisioned in Neon PostgreSQL database with role: <strong>{type === "create-doctor" ? "DOCTOR" : type === "create-staff" ? "STAFF" : "PATIENT"}</strong>
+              </div>
+            </>
+          )}
         </>
       )}
       {type === "create-doctor-profile" && (
@@ -751,7 +874,7 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, uploading, 
       {type === "discharge" && <><div className="sensitive-action-note"><ShieldCheck aria-hidden="true" /><span>Confirm that the treating team has reviewed the transition and discharge instructions before recording this status.</span></div><label className="form-field"><span>Discharge notes <i>*</i></span><textarea name="notes" rows={4} required placeholder="Document discharge coordination notes" /></label><label className="confirm-check"><input type="checkbox" required /><span>I confirm this discharge is ready to be recorded in the live database.</span></label></>}
       {type === "assign" && <><div className="form-assurance"><Stethoscope aria-hidden="true" /> {doctor}</div><Field label="Patient" name="patientId" required><span className="select-wrap"><select name="patientId" required>{choices}</select><ChevronDown aria-hidden="true" /></span></Field><p className="field-help">Assigns patient to selected physician.</p></>}
       {type === "report" && <><Field label="Patient" name="patientId" required><span className="select-wrap"><select name="patientId" required>{choices}</select><ChevronDown aria-hidden="true" /></span></Field><div className="form-grid"><SelectField label="Document type" name="type" options={["Clinical summary", "Diagnostic report", "Referral", "Discharge summary", "Other"]} /><Field label="Description" name="description" placeholder="Optional brief description" /></div><label className="upload-dropzone"><input name="file" type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" required disabled={uploading} /><span className="upload-icon"><Download aria-hidden="true" /></span><strong>Choose a file or drop it here</strong><small>PDF, JPG, or PNG · up to 10 MB</small></label><div className="form-assurance"><LockKeyhole aria-hidden="true" /> Files are uploaded securely to Cloudinary & Report Service.</div>{uploading && <div className="upload-progress"><div><span>Adding document to this session</span><strong>{uploadProgress}%</strong></div><span className="progress-track"><i style={{ width: `${uploadProgress}%` }} /></span></div>}</>}
-      <div className="dialog-actions"><button type="button" className="button button-outline" onClick={onClose} disabled={uploading}>Cancel</button><button className="button button-primary" type="submit" disabled={uploading}>{uploading ? "Adding document…" : type === "create-doctor" ? "Create Account & Continue" : type === "create-doctor-profile" ? "Save Doctor Profile" : type === "create-staff" ? "Create Staff Account" : type === "create-patient-account" ? "Create Patient Account" : type === "edit-patient" ? "Save patient details" : type === "patient" ? "Register patient" : type === "record" ? "Save clinical note" : type === "test" ? "Schedule test" : type === "admission" ? "Open admission" : type === "discharge" ? "Confirm discharge" : type === "assign" ? "Confirm assignment" : "Add document"}<ArrowRight aria-hidden="true" /></button></div>
+      <div className="dialog-actions"><button type="button" className="button button-outline" onClick={onClose} disabled={uploading}>Cancel</button><button className="button button-primary" type="submit" disabled={uploading}>{uploading ? "Adding document…" : type === "create-doctor" ? (isExisting ? "Promote to Doctor & Continue" : "Create Account & Continue") : type === "create-doctor-profile" ? "Save Doctor Profile" : type === "create-staff" ? (isExisting ? "Promote to Staff Role" : "Create Staff Account") : type === "create-patient-account" ? "Create Patient Account" : type === "edit-patient" ? "Save patient details" : type === "patient" ? "Register patient" : type === "record" ? "Save clinical note" : type === "test" ? "Schedule test" : type === "admission" ? "Open admission" : type === "discharge" ? "Confirm discharge" : type === "assign" ? "Confirm assignment" : "Add document"}<ArrowRight aria-hidden="true" /></button></div>
     </form>}</section></div>
 }
 
