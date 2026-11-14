@@ -187,6 +187,14 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
     }
   }, [role, userName])
 
+  useEffect(() => {
+    if (section === "staff" && role === "Administrator") {
+      authApi.getAllUsers().then((users) => {
+        if (users) setSystemUsers(users)
+      }).catch(() => {})
+    }
+  }, [section, role])
+
   const permittedSections = roleSections[role]
   const ownPatient = role === "Patient" ? (patients[0] ?? null) : null
   const visiblePatients = useMemo(() => {
@@ -464,6 +472,7 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
         authApi.updateUserRole(selectedUserId, "STAFF").then((res) => {
           notify(`User #${selectedUserId} (${res.email}) successfully promoted to STAFF role!`)
           setModal(null)
+          authApi.getAllUsers().then((u) => { if (u) setSystemUsers(u) }).catch(() => {})
         }).catch((err) => {
           notify(`Failed to promote user: ${err.message}`)
         })
@@ -475,6 +484,7 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
       authApi.createStaffAccount(email, password).then((res) => {
         notify(`Staff account created! Email: ${res.email}, Role: ${res.role}`)
         setModal(null)
+        authApi.getAllUsers().then((u) => { if (u) setSystemUsers(u) }).catch(() => {})
       }).catch((err) => {
         notify(`Failed: ${err.message}`)
         setModal(null)
@@ -487,6 +497,7 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
       authApi.createPatientAccount(email, password).then((res) => {
         notify(`Patient account created! Email: ${res.email} (User #${res.userId})`)
         setModal(null)
+        authApi.getAllUsers().then((u) => { if (u) setSystemUsers(u) }).catch(() => {})
       }).catch((err) => {
         notify(`Failed: ${err.message}`)
         setModal(null)
@@ -542,7 +553,7 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
           {section === "diagnostics" && <DiagnosticsPage tests={tests.filter((item) => `${item.patient} ${item.test} ${item.department}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onAdd={() => startModal("test")} onOpenPatient={openPatient} />}
           {section === "reports" && <ReportsPage reports={reports.filter((item) => `${item.patient} ${item.name} ${item.type}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onUpload={() => startModal("report")} onOpenPatient={openPatient} onPreview={setPreviewReport} onDelete={openDelete} />}
           {section === "admissions" && <AdmissionsPage admissions={admissions.filter((item) => `${item.patient} ${item.ward} ${item.status}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onAdd={() => startModal("admission")} onDischarge={openDischarge} onOpenPatient={openPatient} />}
-          {section === "staff" && <StaffPage onCreateDoctor={() => startModal("create-doctor")} onCreateStaff={() => startModal("create-staff")} onCreatePatient={() => startModal("create-patient-account")} />}
+          {section === "staff" && <StaffPage users={systemUsers} query={query} onCreateDoctor={() => startModal("create-doctor")} onCreateStaff={() => startModal("create-staff")} onCreatePatient={() => startModal("create-patient-account")} />}
           {section === "settings" && <SettingsPage role={role} userName={currentName} onSignOut={onSignOut} />}
         </div>
       </div>
@@ -666,20 +677,36 @@ function AdmissionsPage({ admissions, patients, role, onAdd, onDischarge, onOpen
   return <div className="page-stack"><PageHeading eyebrow="INPATIENT SERVICES" title={role === "Patient" ? "My hospital stays" : "Hospital stays"} description={role === "Patient" ? "Your admission and discharge history." : "Coordinate admissions, ward placement, and discharge."} action={role === "Hospital staff" || role === "Administrator" ? <button className="button button-primary" onClick={onAdd}><Plus aria-hidden="true" /> New admission</button> : undefined} /><div className="admission-summary-row"><div className="surface-card admission-summary"><span className="summary-icon icon-blue"><Activity aria-hidden="true" /></span><div><strong>{current}</strong><span>Active stays in view</span></div></div><div className="surface-card admission-summary"><span className="summary-icon icon-teal"><Check aria-hidden="true" /></span><div><strong>{admissions.filter((item) => item.status === "Discharged").length}</strong><span>Discharged in this view</span></div></div><div className="admission-summary-caption"><ShieldCheck aria-hidden="true" /> Patient details are shown only to authorized roles.</div></div><section className="surface-card table-card full-table"><div className="table-scroll"><table><thead><tr><th>Patient</th><th>Admission ID</th><th>Ward / service</th><th>Bed</th><th>Admitted</th><th>Status</th><th>Discharged</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{admissions.map((admission) => <tr key={admission.id}><td><button className="table-link" onClick={() => { const target = patients.find((item) => item.id === admission.patientId) ?? patients[0]; if (target) onOpenPatient(target) }}>{admission.patient}</button></td><td className="id-cell">{admission.id}</td><td>{admission.ward}</td><td>{admission.bed}</td><td>{admission.admitted}</td><td><StatusPill status={admission.status} /></td><td>{admission.discharged ?? "—"}</td><td>{admission.status === "Admitted" && (role === "Hospital staff" || role === "Administrator") ? <button className="button button-outline button-small" onClick={() => onDischarge(admission.id)}>Discharge</button> : <button className="icon-button row-action" aria-label={`View admission for ${admission.patient}`} onClick={() => alert(admission.notes || "Active stay in hospital.")}><ArrowUpRight aria-hidden="true" /></button>}</td></tr>)}</tbody></table></div>{admissions.length === 0 && <EmptyState title="No hospital stays" text="No admission records are available in this view." />}<div className="table-footer"><span>{admissions.length} stays</span><div><button className="icon-button" aria-label="Previous page" disabled><ChevronLeft aria-hidden="true" /></button><span className="page-number">1</span><button className="icon-button" aria-label="Next page" disabled><ChevronRight aria-hidden="true" /></button></div></div></section><div className="notice-callout"><AlertCircle aria-hidden="true" /><p>Before discharge, confirm the treating team has completed the discharge summary and patient instructions.</p></div></div>
 }
 
-function StaffPage({ onCreateDoctor, onCreateStaff, onCreatePatient }: { onCreateDoctor: () => void; onCreateStaff: () => void; onCreatePatient: () => void }) {
+function StaffPage({
+  users,
+  query,
+  onCreateDoctor,
+  onCreateStaff,
+  onCreatePatient,
+}: {
+  users: UserSummaryDTO[]
+  query: string
+  onCreateDoctor: () => void
+  onCreateStaff: () => void
+  onCreatePatient: () => void
+}) {
+  const staffMembers = users
+    .filter((u) => u.role === "STAFF")
+    .filter((u) => !query || u.email.toLowerCase().includes(query.toLowerCase()) || String(u.id).includes(query))
+
   return (
     <div className="page-stack">
       <PageHeading
         eyebrow="WORKFORCE DIRECTORY"
-        title="Staff & User Management"
-        description="Provision and manage Doctor, Hospital Staff, and Patient credentials directly into PostgreSQL."
+        title="Hospital Staff"
+        description={`${staffMembers.length} hospital staff member${staffMembers.length === 1 ? "" : "s"} registered in database.`}
         action={
           <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-            <button className="button button-primary" onClick={onCreateDoctor}>
-              <Plus aria-hidden="true" /> Add Doctor
-            </button>
-            <button className="button button-outline" onClick={onCreateStaff}>
+            <button className="button button-primary" onClick={onCreateStaff}>
               <Plus aria-hidden="true" /> Add Staff
+            </button>
+            <button className="button button-outline" onClick={onCreateDoctor}>
+              <Plus aria-hidden="true" /> Add Doctor
             </button>
             <button className="button button-outline" onClick={onCreatePatient}>
               <Plus aria-hidden="true" /> Add Patient User
@@ -687,51 +714,66 @@ function StaffPage({ onCreateDoctor, onCreateStaff, onCreatePatient }: { onCreat
           </div>
         }
       />
-      <div className="notice-callout">
-        <LockKeyhole aria-hidden="true" />
-        <p>Access and credentials changes are restricted to hospital administrators. Creating an account provisions user credentials directly into PostgreSQL via Auth Service.</p>
+      <div className="directory-summary">
+        <div>
+          <span className="directory-counter">{staffMembers.length}</span>
+          <span>hospital staff accounts</span>
+        </div>
       </div>
       <section className="surface-card table-card full-table">
         <div className="table-scroll">
           <table>
             <thead>
               <tr>
-                <th>Member</th>
+                <th>Staff Member</th>
+                <th>User ID</th>
+                <th>Email Address</th>
                 <th>Role</th>
-                <th>Department</th>
-                <th>Access Level</th>
                 <th>Status</th>
-                <th><span className="sr-only">Options</span></th>
               </tr>
             </thead>
             <tbody>
-              {[
-                { name: "Hospital Administrator", role: "Administrator", department: "Hospital Operations", access: "Full Control" },
-                { name: "Staff Coordinator", role: "Hospital staff", department: "Patient Services", access: "Admissions & Reports" },
-                { name: "Attending Cardiologist", role: "Doctor", department: "Cardiology", access: "Clinical Records & Consultations" },
-              ].map((staff) => (
-                <tr key={staff.name}>
-                  <td>
-                    <span className="table-person">
-                      <span className="patient-avatar">{initials(staff.name)}</span>
-                      <span><strong>{staff.name}</strong><small>{staff.role}</small></span>
-                    </span>
-                  </td>
-                  <td>{staff.role}</td>
-                  <td>{staff.department}</td>
-                  <td>{staff.access}</td>
-                  <td><StatusPill status="Active" /></td>
-                  <td>
-                    <button className="icon-button row-action" aria-label={`Manage ${staff.name}`} onClick={() => alert(`${staff.name} has active access.`)}>
-                      <MoreHorizontal aria-hidden="true" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {staffMembers.map((staff) => {
+                const namePart = staff.email.split("@")[0].replace(/[._-]/g, " ")
+                const displayName = namePart.charAt(0).toUpperCase() + namePart.slice(1)
+                return (
+                  <tr key={staff.id}>
+                    <td>
+                      <span className="table-person">
+                        <span className="patient-avatar">{initials(displayName)}</span>
+                        <span>
+                          <strong>{displayName}</strong>
+                          <small>{staff.email}</small>
+                        </span>
+                      </span>
+                    </td>
+                    <td className="id-cell">USR-{staff.id}</td>
+                    <td>{staff.email}</td>
+                    <td>
+                      <span style={{ fontSize: "0.75rem", fontWeight: 600, padding: "0.2rem 0.55rem", borderRadius: "9999px", background: "rgba(13, 148, 136, 0.12)", color: "#0d9488" }}>
+                        Hospital staff
+                      </span>
+                    </td>
+                    <td><StatusPill status={staff.enabled ? "Active" : "Disabled"} /></td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
+        {staffMembers.length === 0 && (
+          <EmptyState
+            title={query ? "No matching staff accounts" : "No hospital staff registered"}
+            text={query ? "Try searching with a different email or ID." : "Add a staff member or promote an existing account to Staff role."}
+          />
+        )}
+        <div className="table-footer">
+          <span>Showing {staffMembers.length} staff member{staffMembers.length === 1 ? "" : "s"} from Users database</span>
+        </div>
       </section>
+      <p className="page-disclaimer">
+        <LockKeyhole aria-hidden="true" /> Synced directly with PostgreSQL users table (role: STAFF).
+      </p>
     </div>
   )
 }
