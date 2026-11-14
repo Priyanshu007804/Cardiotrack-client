@@ -291,10 +291,11 @@ export const patientApi = {
     return request<PatientDTO>(`/api/patients/${id}`);
   },
 
-  async create(data: { name: string; age?: number; gender?: string }): Promise<PatientDTO> {
-    return request<PatientDTO>("/api/patients", {
+  async create(data: { name: string; age?: number; gender?: string; userId?: number }): Promise<PatientDTO> {
+    const url = data.userId ? `/api/patients?userId=${data.userId}` : "/api/patients";
+    return request<PatientDTO>(url, {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify({ name: data.name, age: data.age, gender: data.gender }),
     });
   },
 

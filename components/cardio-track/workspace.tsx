@@ -252,29 +252,62 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
       const name = value("name")
       const age = Number(value("age")) || 34
       const gender = value("gender") || "Other"
+      const email = value("email")
+      const password = value("password")
+      const phone = value("phone") || "+91 98000 00000"
+      const bloodGroup = value("bloodGroup") || "Unknown"
+      const department = value("department") || "Cardiology"
+      const rawDoctor = value("doctor")
+      const doctor = (rawDoctor && rawDoctor !== "Unassigned") ? rawDoctor : "Unassigned"
+      const emergency = value("emergency") || "Contact Hospital"
+      const address = value("address") || "Kolkata, West Bengal"
 
-      patientApi.create({ name, age, gender }).then((saved) => {
-        const newPatient: Patient = {
-          id: `CT-${saved.id}`,
-          name: saved.name,
-          age: saved.age,
-          gender: saved.gender,
-          phone: value("phone") || "+91 98000 00000",
-          email: value("email") || `${name.toLowerCase().replace(/\s+/g, ".")}@cardiotrack.in`,
-          bloodGroup: value("bloodGroup") || "O+",
-          department: value("department") || "Cardiology",
-          doctor: value("doctor") || "Dr. Arindam Bose",
-          status: "Active",
-          lastVisit: "Today",
-          emergency: value("emergency") || "Contact Hospital",
-          address: value("address") || "Kolkata, West Bengal",
-        }
-        setPatients((previous) => [newPatient, ...previous.filter(p => p.id !== newPatient.id)])
-        notify(`${name} saved to PostgreSQL database!`)
+      // Step 1: Provision patient user credentials in auth-service (Users DB)
+      authApi.createPatientAccount(email, password).then((userRes) => {
+        const userId = userRes.userId
+        // Step 2: Save healthcare profile to patient-service (Patient DB) with linked userId
+        return patientApi.create({ name, age, gender, userId }).then((saved) => {
+          const newPatient: Patient = {
+            id: `CT-${saved.id}`,
+            name: saved.name,
+            age: saved.age,
+            gender: saved.gender,
+            phone,
+            email,
+            bloodGroup,
+            department,
+            doctor,
+            status: "Active",
+            lastVisit: "Today",
+            emergency,
+            address,
+          }
+          setPatients((previous) => [newPatient, ...previous.filter(p => p.id !== newPatient.id)])
+          notify(`${name} registered! Family login: ${email} (User #${userId})`)
+        })
       }).catch((err) => {
-        const newPatient: Patient = { id: `CT-${24100 + patients.length}`, name, age, gender, phone: value("phone"), email: value("email"), bloodGroup: value("bloodGroup"), department: value("department"), doctor: value("doctor"), status: "Active", lastVisit: "12 Nov 2026", emergency: value("emergency"), address: value("address") }
-        setPatients((previous) => [newPatient, ...previous])
-        notify(`${name} added locally (${err.message})`)
+        // Fallback: If user account already exists or auth notice, save patient profile directly
+        patientApi.create({ name, age, gender }).then((saved) => {
+          const newPatient: Patient = {
+            id: `CT-${saved.id}`,
+            name: saved.name,
+            age: saved.age,
+            gender: saved.gender,
+            phone,
+            email,
+            bloodGroup,
+            department,
+            doctor,
+            status: "Active",
+            lastVisit: "Today",
+            emergency,
+            address,
+          }
+          setPatients((previous) => [newPatient, ...previous.filter(p => p.id !== newPatient.id)])
+          notify(`${name} saved to Patient DB (${err.message})`)
+        }).catch((pErr) => {
+          notify(`Registration failed: ${pErr.message}`)
+        })
       })
 
       setModal(null)
@@ -867,7 +900,28 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, uploading, 
           </div>
         </>
       )}
-      {(type === "patient" || type === "edit-patient") && <><div className="form-grid"><Field label="Full name" name="name" required placeholder="Patient full name" defaultValue={patientToEdit?.name} /><Field label="Age" name="age" required type="number" placeholder="Age in years" defaultValue={patientToEdit ? String(patientToEdit.age) : undefined} /><SelectField label="Gender" name="gender" options={["Female", "Male", "Non-binary", "Prefer not to say"]} defaultValue={patientToEdit?.gender} /><SelectField label="Blood group" name="bloodGroup" options={["Unknown", "A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"]} defaultValue={patientToEdit?.bloodGroup} /><Field label="Phone number" name="phone" required type="tel" placeholder="+91 98XXX XXXXX" defaultValue={patientToEdit?.phone} /><Field label="Email address" name="email" type="email" placeholder="name@example.in" defaultValue={patientToEdit?.email} /><SelectField label="Department" name="department" options={["Cardiology", "Internal Medicine", "Neurology", "Orthopedics"]} defaultValue={patientToEdit?.department} /><SelectField label="Assigned doctor" name="doctor" options={demoDoctors.map((item) => item.name)} defaultValue={patientToEdit?.doctor} /><Field label="Emergency contact" name="emergency" placeholder="Name · phone number" defaultValue={patientToEdit?.emergency} /><Field label="Address" name="address" placeholder="Area, Kolkata" defaultValue={patientToEdit?.address} /></div><div className="form-assurance"><LockKeyhole aria-hidden="true" /> Registration and profile updates are saved directly to Patient Service.</div></>}
+      {(type === "patient" || type === "edit-patient") && (
+        <>
+          <div className="form-grid">
+            <Field label="Full name" name="name" required placeholder="Patient full name" defaultValue={patientToEdit?.name} />
+            <Field label="Age" name="age" required type="number" placeholder="Age in years" defaultValue={patientToEdit ? String(patientToEdit.age) : undefined} />
+            <SelectField label="Gender" name="gender" options={["Female", "Male", "Non-binary", "Prefer not to say"]} defaultValue={patientToEdit?.gender} />
+            <SelectField label="Blood group" name="bloodGroup" options={["Unknown", "A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"]} defaultValue={patientToEdit?.bloodGroup} />
+            <Field label="Phone number" name="phone" required type="tel" placeholder="+91 98XXX XXXXX" defaultValue={patientToEdit?.phone} />
+            <Field label="Email address" name="email" type="email" required={type === "patient"} placeholder="patient.family@example.com" defaultValue={patientToEdit?.email} />
+            {type === "patient" && (
+              <Field label="Account password" name="password" type="password" required placeholder="Temporary login password for patient / family" />
+            )}
+            <SelectField label="Department" name="department" options={["Cardiology", "Internal Medicine", "Neurology", "Orthopedics"]} defaultValue={patientToEdit?.department} />
+            <SelectField label="Assigned doctor (optional)" name="doctor" required={false} options={["Unassigned", ...demoDoctors.map((item) => item.name)]} defaultValue={patientToEdit?.doctor || "Unassigned"} />
+            <Field label="Emergency contact" name="emergency" placeholder="Name · phone number" defaultValue={patientToEdit?.emergency} />
+            <Field label="Address" name="address" placeholder="Area, Kolkata" defaultValue={patientToEdit?.address} />
+          </div>
+          <div className="form-assurance">
+            <LockKeyhole aria-hidden="true" /> Email and password are saved to Users DB (role: PATIENT); healthcare profile is stored in Patient DB.
+          </div>
+        </>
+      )}
       {type === "record" && <><Field label="Patient" name="patientId" required><span className="select-wrap"><select name="patientId" required>{choices}</select><ChevronDown aria-hidden="true" /></span></Field><div className="form-grid"><Field label="Record title" name="title" required placeholder="e.g. Follow-up consultation" /><Field label="Diagnosis / reason" name="diagnosis" required placeholder="Documented by treating clinician" /><SelectField label="Attending doctor" name="doctor" options={demoDoctors.map((item) => item.name)} /><label className="form-field form-field-wide"><span>Treatment notes</span><textarea name="notes" rows={4} required placeholder="Write structured clinical observations and plan…" /></label></div><div className="notice-callout compact-notice"><AlertCircle aria-hidden="true" /><p>Clinical note will be saved to the database.</p></div></>}
       {type === "test" && <><Field label="Patient" name="patientId" required><span className="select-wrap"><select name="patientId" required>{choices}</select><ChevronDown aria-hidden="true" /></span></Field><div className="form-grid"><SelectField label="Diagnostic test" name="test" options={["ECG", "Echocardiogram", "Lipid Profile", "Complete Blood Count", "Chest X-ray"]} /><SelectField label="Department" name="department" options={["Cardiology", "Pathology", "Radiology", "Internal Medicine"]} /><SelectField label="Requesting doctor" name="doctor" options={demoDoctors.map((item) => item.name)} /><Field label="Scheduled date" name="date" type="date" required /><label className="form-field form-field-wide"><span>Clinical notes</span><textarea name="note" rows={3} placeholder="Purpose or scheduling notes" /></label></div><p className="field-help">Workflow status only. Do not enter or infer medical conclusions.</p></>}
       {type === "admission" && <><Field label="Patient" name="patientId" required><span className="select-wrap"><select name="patientId" required>{choices}</select><ChevronDown aria-hidden="true" /></span></Field><div className="form-grid"><SelectField label="Ward / service" name="ward" options={["Cardiac care · 3rd floor", "General medicine · 2nd floor", "Neurology · 3rd floor", "Orthopedics · 4th floor"]} /><Field label="Bed" name="bed" required placeholder="e.g. CC-14" /></div><div className="sensitive-action-note"><AlertCircle aria-hidden="true" /><span>The form will prevent a second active admission for the same patient.</span></div></>}
