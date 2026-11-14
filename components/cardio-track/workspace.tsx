@@ -6,7 +6,7 @@ import { Activity, AlertCircle, ArrowDownRight, ArrowRight, ArrowUpRight, Bell, 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import type { LucideIcon } from "lucide-react"
 import { demoDoctors, roleSections, type Admission, type DiagnosticTest, type MedicalRecord, type MedicalReport, type Patient, type Role, type Section } from "./data"
-import { patientApi, doctorApi, clinicalApi, hospitalApi, reportApi } from "@/lib/api"
+import { patientApi, doctorApi, clinicalApi, hospitalApi, reportApi, authApi, type DoctorDTO } from "@/lib/api"
 
 const sectionNames: Record<Section, string> = { overview: "Overview", patients: "Patients", doctors: "Doctors", records: "Clinical records", diagnostics: "Diagnostic tests", reports: "Medical reports", admissions: "Hospital stays", staff: "Staff access", settings: "Settings" }
 const sectionIcons: Record<Section, LucideIcon> = { overview: LayoutDashboard, patients: UsersRound, doctors: Stethoscope, records: ClipboardList, diagnostics: TestTube2, reports: FileHeart, admissions: Activity, staff: UserRoundPlus, settings: Settings }
@@ -14,7 +14,7 @@ const activityChartConfig = { visits: { label: "Patient visits", color: "var(--c
 const activityChartData = [{ day: "Mon", visits: 0 }, { day: "Tue", visits: 0 }, { day: "Wed", visits: 0 }, { day: "Thu", visits: 0 }, { day: "Fri", visits: 0 }, { day: "Sat", visits: 0 }, { day: "Sun", visits: 0 }]
 const roleWelcome: Record<Role, string> = { Administrator: "Administrator", Doctor: "Doctor", "Hospital staff": "Hospital Staff", Patient: "Patient" }
 
-type ModalType = "patient" | "edit-patient" | "record" | "test" | "admission" | "report" | "discharge" | "assign" | "delete" | null
+type ModalType = "patient" | "edit-patient" | "record" | "test" | "admission" | "report" | "discharge" | "assign" | "delete" | "create-doctor" | "create-staff" | "create-patient-account" | "create-doctor-profile" | null
 
 type WorkspaceProps = { role: Role; userName: string; onSignOut: () => void; onSwitchRole: (role: Role) => void }
 
@@ -36,6 +36,8 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploading, setUploading] = useState(false)
   const [previewReport, setPreviewReport] = useState<MedicalReport | null>(null)
+  const [liveDoctors, setLiveDoctors] = useState<DoctorDTO[]>([])
+  const [newAccountUserId, setNewAccountUserId] = useState<number | null>(null)
   const [menuOpen, setMenuOpen] = useState<"profile" | "notifications" | null>(null)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
@@ -165,6 +167,15 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
             }
           } catch {
             // Using demo data as fallback if backend is warming up
+          }
+
+          try {
+            const backendDoctors = await doctorApi.getAll()
+            if (isMounted && backendDoctors) {
+              setLiveDoctors(backendDoctors)
+            }
+          } catch {
+            // Doctor service may be warming up
           }
         }
       } catch (err) {
@@ -362,6 +373,63 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
       setModal(null)
       notify("Document removed from this demonstration session.")
     }
+    if (modal === "create-doctor") {
+      const email = value("email")
+      const password = value("password")
+      authApi.createDoctorAccount(email, password).then((res) => {
+        setNewAccountUserId(res.userId)
+        setModal("create-doctor-profile")
+        notify(`Doctor account created! (User #${res.userId}) — Now fill in the profile.`)
+      }).catch((err) => {
+        notify(`Failed: ${err.message}`)
+        setModal(null)
+      })
+      return
+    }
+    if (modal === "create-doctor-profile") {
+      if (!newAccountUserId) return
+      const profileData = {
+        fullName: value("fullName"),
+        qualification: value("qualification"),
+        specialization: value("specialization"),
+        experienceYears: Number(value("experienceYears")) || 0,
+        registrationNumber: value("registrationNumber"),
+      }
+      doctorApi.createProfile(newAccountUserId, profileData).then((saved) => {
+        setLiveDoctors((prev) => [...prev, saved])
+        setNewAccountUserId(null)
+        setModal(null)
+        notify(`Dr. ${saved.fullName}'s profile created successfully!`)
+      }).catch((err) => {
+        notify(`Profile creation failed: ${err.message}`)
+        setModal(null)
+      })
+      return
+    }
+    if (modal === "create-staff") {
+      const email = value("email")
+      const password = value("password")
+      authApi.createStaffAccount(email, password).then((res) => {
+        notify(`Staff account created! Email: ${res.email}, Role: ${res.role}`)
+        setModal(null)
+      }).catch((err) => {
+        notify(`Failed: ${err.message}`)
+        setModal(null)
+      })
+      return
+    }
+    if (modal === "create-patient-account") {
+      const email = value("email")
+      const password = value("password")
+      authApi.createPatientAccount(email, password).then((res) => {
+        notify(`Patient account created! Email: ${res.email} (User #${res.userId})`)
+        setModal(null)
+      }).catch((err) => {
+        notify(`Failed: ${err.message}`)
+        setModal(null)
+      })
+      return
+    }
   }
 
   const openDischarge = (id: string) => { setTargetId(id); startModal("discharge") }
@@ -406,12 +474,12 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
         <div className="workspace-content" id="workspace">
           {section === "overview" && <Overview role={role} name={currentName} patients={patients} records={records} tests={tests} admissions={admissions} onNavigate={navigate} onOpenPatient={openPatient} />}
           {section === "patients" && (selectedPatient ? <PatientProfile patient={selectedPatient} records={records.filter((item) => item.patientId === selectedPatient.id)} tests={tests.filter((item) => item.patientId === selectedPatient.id)} reports={reports.filter((item) => item.patientId === selectedPatient.id)} admissions={admissions.filter((item) => item.patientId === selectedPatient.id)} tab={patientTab} onTab={setPatientTab} onBack={() => setSelectedPatient(null)} onOpenReport={setPreviewReport} canEdit={role === "Administrator" || role === "Hospital staff"} onEdit={() => openPatientEdit(selectedPatient)} /> : <PatientDirectory patients={visiblePatients} role={role} query={query} filter={filter} onFilter={setFilter} onAdd={() => startModal("patient")} onOpen={openPatient} />)}
-          {section === "doctors" && <DoctorsPage role={role} patients={patients} onAssign={(name) => { setModalDoctor(name); startModal("assign") }} onOpenPatient={openPatient} />}
+          {section === "doctors" && <DoctorsPage role={role} patients={patients} liveDoctors={liveDoctors} onAssign={(name) => { setModalDoctor(name); startModal("assign") }} onOpenPatient={openPatient} onAddDoctor={() => startModal("create-doctor")} />}
           {section === "records" && <RecordsPage records={records.filter((item) => `${item.patient} ${item.title} ${item.diagnosis}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onAdd={() => startModal("record")} onOpenPatient={openPatient} />}
           {section === "diagnostics" && <DiagnosticsPage tests={tests.filter((item) => `${item.patient} ${item.test} ${item.department}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onAdd={() => startModal("test")} onOpenPatient={openPatient} />}
           {section === "reports" && <ReportsPage reports={reports.filter((item) => `${item.patient} ${item.name} ${item.type}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onUpload={() => startModal("report")} onOpenPatient={openPatient} onPreview={setPreviewReport} onDelete={openDelete} />}
           {section === "admissions" && <AdmissionsPage admissions={admissions.filter((item) => `${item.patient} ${item.ward} ${item.status}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onAdd={() => startModal("admission")} onDischarge={openDischarge} onOpenPatient={openPatient} />}
-          {section === "staff" && <StaffPage />}
+          {section === "staff" && <StaffPage onCreateDoctor={() => startModal("create-doctor")} onCreateStaff={() => startModal("create-staff")} onCreatePatient={() => startModal("create-patient-account")} />}
           {section === "settings" && <SettingsPage role={role} userName={currentName} onSignOut={onSignOut} />}
         </div>
       </div>
@@ -500,9 +568,22 @@ function PatientProfile({ patient, records, tests, reports, admissions, tab, onT
 }
 function Detail({ label, value, wide }: { label: string; value: string; wide?: boolean }) { return <div className={`detail-field ${wide ? "detail-wide" : ""}`}><span>{label}</span><strong>{value}</strong></div> }
 
-function DoctorsPage({ role, patients, onAssign, onOpenPatient }: { role: Role; patients: Patient[]; onAssign: (doctor: string) => void; onOpenPatient: (patient: Patient) => void }) {
-  const doctors = demoDoctors
-  return <div className="page-stack"><PageHeading eyebrow={role === "Patient" ? "YOUR CARE TEAM" : "CLINICAL TEAM"} title={role === "Patient" ? "My doctors" : "Doctor directory"} description={role === "Patient" ? "Meet the clinicians supporting your care." : "Specialty, experience, and assigned care overview."} action={role === "Administrator" ? <button className="button button-outline" onClick={() => alert("Doctor onboarding is available to authorized hospital administrators.")}><Plus aria-hidden="true" /> Add doctor</button> : undefined} /><div className="doctor-grid">{doctors.map((doctor) => <article className="surface-card doctor-card" key={doctor.name}><div className="doctor-card-top"><span className={`doctor-avatar avatar-${doctor.tone}`}>{doctor.initials}</span><span className="doctor-availability"><i /> Available</span><button className="icon-button" aria-label={`More options for ${doctor.name}`}><MoreHorizontal aria-hidden="true" /></button></div><h2>{doctor.name}</h2><span className="specialty-label">{doctor.specialty}</span><p className="doctor-qualification">{doctor.qualifications}</p><div className="doctor-meta"><span><strong>{doctor.experience}</strong><small>Experience</small></span><span><strong>{doctor.registration}</strong><small>Registration</small></span></div><div className="doctor-card-footer"><span>{role === "Patient" ? "Your treating physician" : `${doctor.patients} assigned patients`}</span>{role === "Administrator" && <button className="button button-outline button-small" onClick={() => onAssign(doctor.name)}>Assign patient</button>}</div>{role !== "Patient" && <button className="doctor-patients-link" onClick={() => { const target = patients.find((patient) => patient.doctor === doctor.name) ?? patients[0]; if (target) onOpenPatient(target) }}>View assigned patients <ArrowRight aria-hidden="true" /></button>}</article>)}</div></div>
+function DoctorsPage({ role, patients, liveDoctors, onAssign, onOpenPatient, onAddDoctor }: { role: Role; patients: Patient[]; liveDoctors: DoctorDTO[]; onAssign: (doctor: string) => void; onOpenPatient: (patient: Patient) => void; onAddDoctor: () => void }) {
+  const tones = ["teal", "blue", "violet", "amber"]
+  const hasLive = liveDoctors.length > 0
+  const doctors = hasLive
+    ? liveDoctors.map((d, i) => ({
+        name: d.fullName,
+        specialty: d.specialization,
+        qualifications: d.qualification,
+        experience: `${d.experienceYears} years`,
+        registration: d.registrationNumber,
+        patients: 0,
+        initials: d.fullName.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w.replace(".", "")[0]).join("").toUpperCase(),
+        tone: tones[i % tones.length],
+      }))
+    : demoDoctors
+  return <div className="page-stack"><PageHeading eyebrow={role === "Patient" ? "YOUR CARE TEAM" : "CLINICAL TEAM"} title={role === "Patient" ? "My doctors" : "Doctor directory"} description={role === "Patient" ? "Meet the clinicians supporting your care." : `${doctors.length} doctors registered${hasLive ? " (live from database)" : ""}.`} action={role === "Administrator" ? <button className="button button-primary" onClick={onAddDoctor}><Plus aria-hidden="true" /> Add doctor</button> : undefined} /><div className="doctor-grid">{doctors.map((doctor) => <article className="surface-card doctor-card" key={doctor.name}><div className="doctor-card-top"><span className={`doctor-avatar avatar-${doctor.tone}`}>{doctor.initials}</span><span className="doctor-availability"><i /> Available</span><button className="icon-button" aria-label={`More options for ${doctor.name}`}><MoreHorizontal aria-hidden="true" /></button></div><h2>{doctor.name}</h2><span className="specialty-label">{doctor.specialty}</span><p className="doctor-qualification">{doctor.qualifications}</p><div className="doctor-meta"><span><strong>{doctor.experience}</strong><small>Experience</small></span><span><strong>{doctor.registration}</strong><small>Registration</small></span></div><div className="doctor-card-footer"><span>{role === "Patient" ? "Your treating physician" : `${doctor.patients} assigned patients`}</span>{role === "Administrator" && <button className="button button-outline button-small" onClick={() => onAssign(doctor.name)}>Assign patient</button>}</div>{role !== "Patient" && <button className="doctor-patients-link" onClick={() => { const target = patients.find((patient) => patient.doctor === doctor.name) ?? patients[0]; if (target) onOpenPatient(target) }}>View assigned patients <ArrowRight aria-hidden="true" /></button>}</article>)}</div></div>
 }
 
 function RecordsPage({ records, patients, role, onAdd, onOpenPatient }: { records: MedicalRecord[]; patients: Patient[]; role: Role; onAdd: () => void; onOpenPatient: (patient: Patient) => void }) {
@@ -522,7 +603,75 @@ function AdmissionsPage({ admissions, patients, role, onAdd, onDischarge, onOpen
   return <div className="page-stack"><PageHeading eyebrow="INPATIENT SERVICES" title={role === "Patient" ? "My hospital stays" : "Hospital stays"} description={role === "Patient" ? "Your admission and discharge history." : "Coordinate admissions, ward placement, and discharge."} action={role === "Hospital staff" || role === "Administrator" ? <button className="button button-primary" onClick={onAdd}><Plus aria-hidden="true" /> New admission</button> : undefined} /><div className="admission-summary-row"><div className="surface-card admission-summary"><span className="summary-icon icon-blue"><Activity aria-hidden="true" /></span><div><strong>{current}</strong><span>Active stays in view</span></div></div><div className="surface-card admission-summary"><span className="summary-icon icon-teal"><Check aria-hidden="true" /></span><div><strong>{admissions.filter((item) => item.status === "Discharged").length}</strong><span>Discharged in this view</span></div></div><div className="admission-summary-caption"><ShieldCheck aria-hidden="true" /> Patient details are shown only to authorized roles.</div></div><section className="surface-card table-card full-table"><div className="table-scroll"><table><thead><tr><th>Patient</th><th>Admission ID</th><th>Ward / service</th><th>Bed</th><th>Admitted</th><th>Status</th><th>Discharged</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{admissions.map((admission) => <tr key={admission.id}><td><button className="table-link" onClick={() => { const target = patients.find((item) => item.id === admission.patientId) ?? patients[0]; if (target) onOpenPatient(target) }}>{admission.patient}</button></td><td className="id-cell">{admission.id}</td><td>{admission.ward}</td><td>{admission.bed}</td><td>{admission.admitted}</td><td><StatusPill status={admission.status} /></td><td>{admission.discharged ?? "—"}</td><td>{admission.status === "Admitted" && (role === "Hospital staff" || role === "Administrator") ? <button className="button button-outline button-small" onClick={() => onDischarge(admission.id)}>Discharge</button> : <button className="icon-button row-action" aria-label={`View admission for ${admission.patient}`} onClick={() => alert(admission.notes || "Active stay in hospital.")}><ArrowUpRight aria-hidden="true" /></button>}</td></tr>)}</tbody></table></div>{admissions.length === 0 && <EmptyState title="No hospital stays" text="No admission records are available in this view." />}<div className="table-footer"><span>{admissions.length} stays</span><div><button className="icon-button" aria-label="Previous page" disabled><ChevronLeft aria-hidden="true" /></button><span className="page-number">1</span><button className="icon-button" aria-label="Next page" disabled><ChevronRight aria-hidden="true" /></button></div></div></section><div className="notice-callout"><AlertCircle aria-hidden="true" /><p>Before discharge, confirm the treating team has completed the discharge summary and patient instructions.</p></div></div>
 }
 
-function StaffPage() { return <div className="page-stack"><PageHeading eyebrow="WORKFORCE DIRECTORY" title="Staff access" description="Review role assignments and access status for this fictional hospital workspace." action={<button className="button button-outline" onClick={() => alert("New staff access is managed by an authorized hospital administrator.")}><Plus aria-hidden="true" /> Invite staff</button>} /><div className="notice-callout"><LockKeyhole aria-hidden="true" /><p>Access changes are restricted to hospital administrators. Sample staff identities are fictional.</p></div><section className="surface-card table-card full-table"><div className="table-scroll"><table><thead><tr><th>Staff member</th><th>Role</th><th>Department</th><th>Last activity</th><th>Access status</th><th><span className="sr-only">Options</span></th></tr></thead><tbody>{[{ name: "Meera Das", role: "Hospital staff", department: "Patient services", active: "Today, 10:42 AM" }, { name: "Dr. Arindam Bose", role: "Doctor", department: "Cardiology", active: "Today, 11:16 AM" }, { name: "Ananya Mukherjee", role: "Administrator", department: "Hospital operations", active: "Today, 09:20 AM" }, { name: "Dr. Priya Nair", role: "Doctor", department: "Internal Medicine", active: "Yesterday, 04:38 PM" }].map((staff) => <tr key={staff.name}><td><span className="table-person"><span className="patient-avatar">{initials(staff.name)}</span><span><strong>{staff.name}</strong><small>Fictional staff account</small></span></span></td><td>{staff.role}</td><td>{staff.department}</td><td>{staff.active}</td><td><StatusPill status="Active" /></td><td><button className="icon-button row-action" aria-label={`Manage ${staff.name}`} onClick={() => alert("Staff access settings are restricted to authorized administrators.")}><MoreHorizontal aria-hidden="true" /></button></td></tr>)}</tbody></table></div></section></div> }
+function StaffPage({ onCreateDoctor, onCreateStaff, onCreatePatient }: { onCreateDoctor: () => void; onCreateStaff: () => void; onCreatePatient: () => void }) {
+  return (
+    <div className="page-stack">
+      <PageHeading
+        eyebrow="WORKFORCE DIRECTORY"
+        title="Staff & User Management"
+        description="Provision and manage Doctor, Hospital Staff, and Patient credentials directly into PostgreSQL."
+        action={
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <button className="button button-primary" onClick={onCreateDoctor}>
+              <Plus aria-hidden="true" /> Add Doctor
+            </button>
+            <button className="button button-outline" onClick={onCreateStaff}>
+              <Plus aria-hidden="true" /> Add Staff
+            </button>
+            <button className="button button-outline" onClick={onCreatePatient}>
+              <Plus aria-hidden="true" /> Add Patient User
+            </button>
+          </div>
+        }
+      />
+      <div className="notice-callout">
+        <LockKeyhole aria-hidden="true" />
+        <p>Access and credentials changes are restricted to hospital administrators. Creating an account provisions user credentials directly into PostgreSQL via Auth Service.</p>
+      </div>
+      <section className="surface-card table-card full-table">
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Member</th>
+                <th>Role</th>
+                <th>Department</th>
+                <th>Access Level</th>
+                <th>Status</th>
+                <th><span className="sr-only">Options</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { name: "Hospital Administrator", role: "Administrator", department: "Hospital Operations", access: "Full Control" },
+                { name: "Staff Coordinator", role: "Hospital staff", department: "Patient Services", access: "Admissions & Reports" },
+                { name: "Attending Cardiologist", role: "Doctor", department: "Cardiology", access: "Clinical Records & Consultations" },
+              ].map((staff) => (
+                <tr key={staff.name}>
+                  <td>
+                    <span className="table-person">
+                      <span className="patient-avatar">{initials(staff.name)}</span>
+                      <span><strong>{staff.name}</strong><small>{staff.role}</small></span>
+                    </span>
+                  </td>
+                  <td>{staff.role}</td>
+                  <td>{staff.department}</td>
+                  <td>{staff.access}</td>
+                  <td><StatusPill status="Active" /></td>
+                  <td>
+                    <button className="icon-button row-action" aria-label={`Manage ${staff.name}`} onClick={() => alert(`${staff.name} has active access.`)}>
+                      <MoreHorizontal aria-hidden="true" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  )
+}
 
 function SettingsPage({ role, userName, onSignOut }: { role: Role; userName: string; onSignOut: () => void }) { return <div className="page-stack"><PageHeading eyebrow="ACCOUNT & ACCESS" title="Settings" description="Your account details and workspace access." /><div className="settings-grid"><section className="surface-card settings-card"><div className="settings-card-heading"><span className="settings-icon"><UserRound aria-hidden="true" /></span><div><h2>Profile</h2><p>Account identity for this demonstration</p></div></div><Detail label="Name" value={userName} /><Detail label="Workspace role" value={role} /><Detail label="Hospital" value="Shantideep Medical Centre · Kolkata" /><button className="button button-outline" onClick={() => alert("Contact hospital support to update account details.")}>Request profile update</button></section><section className="surface-card settings-card"><div className="settings-card-heading"><span className="settings-icon"><ShieldCheck aria-hidden="true" /></span><div><h2>Privacy & access</h2><p>Understand the demonstration permissions</p></div></div><div className="settings-privacy-row"><LockKeyhole aria-hidden="true" /><span><strong>Role-aware workspace</strong><small>Views are tailored to your selected role.</small></span></div><div className="settings-privacy-row"><FileHeart aria-hidden="true" /><span><strong>Fictional information</strong><small>No sample information represents a real patient.</small></span></div><div className="settings-privacy-row"><Activity aria-hidden="true" /><span><strong>Session-only changes</strong><small>Edits reset when you sign out of this demonstration.</small></span></div></section><section className="surface-card settings-card signout-card"><div><h2>End your session</h2><p>Return to the public CardioTrack welcome page.</p></div><button className="button button-outline" onClick={onSignOut}><LogOut aria-hidden="true" /> Sign out</button></section></div></div> }
 
@@ -535,21 +684,74 @@ function StatusPill({ status }: { status: string }) { const tone = /admitted|act
 function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state"><span><Search aria-hidden="true" /></span><strong>{title}</strong><p>{text}</p></div> }
 
 function ActionDialog({ type, role, patients, patientToEdit, doctor, uploading, uploadProgress, onClose, onSubmit, onDelete }: { type: Exclude<ModalType, null>; role: Role; patients: Patient[]; patientToEdit?: Patient; doctor: string; uploading: boolean; uploadProgress: number; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onDelete: () => void }) {
-  const titles: Record<Exclude<ModalType, null>, string> = { patient: "Register a patient", "edit-patient": "Edit patient details", record: "New clinical note", test: "Schedule diagnostic test", admission: "Open hospital stay", report: "Upload a medical document", discharge: "Confirm discharge", assign: "Assign patient to doctor", delete: "Remove document" }
-  const descriptions: Record<Exclude<ModalType, null>, string> = { patient: "Add fictional patient details to this demonstration directory.", "edit-patient": "Update this fictional patient profile for the current browser session.", record: "Document a structured care entry for an existing patient.", test: "Coordinate a test appointment for a patient.", admission: "Create an admission and ward assignment.", report: "Add a PDF, JPG, or PNG document to this browser session.", discharge: "Record the discharge note after confirming the care transition.", assign: `Select a patient for ${doctor}.`, delete: "This action removes the selected document from this browser session." }
+  const titles: Record<Exclude<ModalType, null>, string> = {
+    patient: "Register a patient",
+    "edit-patient": "Edit patient details",
+    record: "New clinical note",
+    test: "Schedule diagnostic test",
+    admission: "Open hospital stay",
+    report: "Upload a medical document",
+    discharge: "Confirm discharge",
+    assign: "Assign patient to doctor",
+    delete: "Remove document",
+    "create-doctor": "Create Doctor Account",
+    "create-doctor-profile": "Create Doctor Clinical Profile",
+    "create-staff": "Create Staff Account",
+    "create-patient-account": "Create Patient Account",
+  }
+  const descriptions: Record<Exclude<ModalType, null>, string> = {
+    patient: "Add patient details directly into the PostgreSQL database.",
+    "edit-patient": "Update patient profile in the live database.",
+    record: "Document a structured care entry for an existing patient.",
+    test: "Coordinate a test appointment for a patient.",
+    admission: "Create an admission and ward assignment.",
+    report: "Add a PDF, JPG, or PNG document.",
+    discharge: "Record the discharge note after confirming the care transition.",
+    assign: `Select a patient for ${doctor}.`,
+    delete: "This action removes the selected document.",
+    "create-doctor": "Provision a Doctor login account with DOCTOR role in Auth Service.",
+    "create-doctor-profile": "Save doctor qualifications and specialization in Doctor Service.",
+    "create-staff": "Provision a Staff login account with STAFF role in Auth Service.",
+    "create-patient-account": "Provision a Patient login account with PATIENT role in Auth Service.",
+  }
   const choices = patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name} · {patient.id}</option>)
   const Field = ({ label, name, required = false, children, type: inputType = "text", placeholder, defaultValue }: { label: string; name: string; required?: boolean; children?: ReactNode; type?: string; placeholder?: string; defaultValue?: string }) => <label className="form-field"><span>{label}{required && <i> *</i>}</span>{children ?? <input name={name} type={inputType} placeholder={placeholder} required={required} defaultValue={defaultValue} />}</label>
   const SelectField = ({ label, name, options, required = true, defaultValue }: { label: string; name: string; options: string[]; required?: boolean; defaultValue?: string }) => <label className="form-field"><span>{label}{required && <i> *</i>}</span><span className="select-wrap"><select name={name} required={required} defaultValue={defaultValue}>{options.map((option) => <option key={option}>{option}</option>)}</select><ChevronDown aria-hidden="true" /></span></label>
   return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !uploading) onClose() }} onKeyDown={(event) => { if (event.key === "Escape" && !uploading) onClose() }}><section className="action-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title"><div className="dialog-heading"><div><span className="eyebrow">{type === "delete" || type === "discharge" ? "CONFIRMATION REQUIRED" : "CARDIOTRACK WORKSPACE"}</span><h2 id="dialog-title">{titles[type]}</h2><p>{descriptions[type]}</p></div><button className="icon-button" aria-label="Close dialog" onClick={onClose} disabled={uploading}><X aria-hidden="true" /></button></div>
-    {type === "delete" ? <div className="dialog-body"><div className="sensitive-action-note"><AlertCircle aria-hidden="true" /><span>Document deletion is restricted to authorized users. This demonstration action cannot be undone in the current session.</span></div><div className="dialog-actions"><button className="button button-outline" onClick={onClose}>Cancel</button><button className="button button-danger" onClick={onDelete}>Remove document</button></div></div> : <form className="dialog-form" onSubmit={onSubmit}>
-      {(type === "patient" || type === "edit-patient") && <><div className="form-grid"><Field label="Full name" name="name" required placeholder="Patient full name" defaultValue={patientToEdit?.name} /><Field label="Age" name="age" required type="number" placeholder="Age in years" defaultValue={patientToEdit ? String(patientToEdit.age) : undefined} /><SelectField label="Gender" name="gender" options={["Female", "Male", "Non-binary", "Prefer not to say"]} defaultValue={patientToEdit?.gender} /><SelectField label="Blood group" name="bloodGroup" options={["Unknown", "A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"]} defaultValue={patientToEdit?.bloodGroup} /><Field label="Phone number" name="phone" required type="tel" placeholder="+91 98XXX XXXXX" defaultValue={patientToEdit?.phone} /><Field label="Email address" name="email" type="email" placeholder="name@example.in" defaultValue={patientToEdit?.email} /><SelectField label="Department" name="department" options={["Cardiology", "Internal Medicine", "Neurology", "Orthopedics"]} defaultValue={patientToEdit?.department} /><SelectField label="Assigned doctor" name="doctor" options={demoDoctors.map((item) => item.name)} defaultValue={patientToEdit?.doctor} /><Field label="Emergency contact" name="emergency" placeholder="Name · phone number" defaultValue={patientToEdit?.emergency} /><Field label="Address" name="address" placeholder="Area, Kolkata" defaultValue={patientToEdit?.address} /></div><div className="form-assurance"><LockKeyhole aria-hidden="true" /> Registration and profile updates are restricted to authorized hospital staff.</div></>}
+    {type === "delete" ? <div className="dialog-body"><div className="sensitive-action-note"><AlertCircle aria-hidden="true" /><span>Document deletion is restricted to authorized users. This action cannot be undone.</span></div><div className="dialog-actions"><button className="button button-outline" onClick={onClose}>Cancel</button><button className="button button-danger" onClick={onDelete}>Remove document</button></div></div> : <form className="dialog-form" onSubmit={onSubmit}>
+      {(type === "create-doctor" || type === "create-staff" || type === "create-patient-account") && (
+        <>
+          <div className="form-grid">
+            <Field label="Email address" name="email" type="email" required placeholder="user@cardiotrack.com" />
+            <Field label="Password" name="password" type="password" required placeholder="Minimum 6 characters" />
+          </div>
+          <div className="form-assurance">
+            <LockKeyhole aria-hidden="true" /> Provisioned in Neon PostgreSQL database with role: <strong>{type === "create-doctor" ? "DOCTOR" : type === "create-staff" ? "STAFF" : "PATIENT"}</strong>
+          </div>
+        </>
+      )}
+      {type === "create-doctor-profile" && (
+        <>
+          <div className="form-grid">
+            <Field label="Full Name" name="fullName" required placeholder="e.g. Dr. Debashish Roy" />
+            <Field label="Qualification" name="qualification" required placeholder="e.g. MBBS, MD, DM (Cardiology)" />
+            <SelectField label="Specialization" name="specialization" options={["Cardiology", "Internal Medicine", "Neurology", "Orthopedics", "General Surgery"]} />
+            <Field label="Experience (Years)" name="experienceYears" type="number" required placeholder="e.g. 15" />
+            <Field label="Registration Number" name="registrationNumber" required placeholder="e.g. WBMC-98765" />
+          </div>
+          <div className="form-assurance">
+            <Stethoscope aria-hidden="true" /> Links directly to the doctor account and creates the profile in Doctor Service.
+          </div>
+        </>
+      )}
+      {(type === "patient" || type === "edit-patient") && <><div className="form-grid"><Field label="Full name" name="name" required placeholder="Patient full name" defaultValue={patientToEdit?.name} /><Field label="Age" name="age" required type="number" placeholder="Age in years" defaultValue={patientToEdit ? String(patientToEdit.age) : undefined} /><SelectField label="Gender" name="gender" options={["Female", "Male", "Non-binary", "Prefer not to say"]} defaultValue={patientToEdit?.gender} /><SelectField label="Blood group" name="bloodGroup" options={["Unknown", "A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"]} defaultValue={patientToEdit?.bloodGroup} /><Field label="Phone number" name="phone" required type="tel" placeholder="+91 98XXX XXXXX" defaultValue={patientToEdit?.phone} /><Field label="Email address" name="email" type="email" placeholder="name@example.in" defaultValue={patientToEdit?.email} /><SelectField label="Department" name="department" options={["Cardiology", "Internal Medicine", "Neurology", "Orthopedics"]} defaultValue={patientToEdit?.department} /><SelectField label="Assigned doctor" name="doctor" options={demoDoctors.map((item) => item.name)} defaultValue={patientToEdit?.doctor} /><Field label="Emergency contact" name="emergency" placeholder="Name · phone number" defaultValue={patientToEdit?.emergency} /><Field label="Address" name="address" placeholder="Area, Kolkata" defaultValue={patientToEdit?.address} /></div><div className="form-assurance"><LockKeyhole aria-hidden="true" /> Registration and profile updates are saved directly to Patient Service.</div></>}
       {type === "record" && <><Field label="Patient" name="patientId" required><span className="select-wrap"><select name="patientId" required>{choices}</select><ChevronDown aria-hidden="true" /></span></Field><div className="form-grid"><Field label="Record title" name="title" required placeholder="e.g. Follow-up consultation" /><Field label="Diagnosis / reason" name="diagnosis" required placeholder="Documented by treating clinician" /><SelectField label="Attending doctor" name="doctor" options={demoDoctors.map((item) => item.name)} /><label className="form-field form-field-wide"><span>Treatment notes</span><textarea name="notes" rows={4} required placeholder="Write structured clinical observations and plan…" /></label></div><div className="notice-callout compact-notice"><AlertCircle aria-hidden="true" /><p>Clinical note will be saved to the database.</p></div></>}
       {type === "test" && <><Field label="Patient" name="patientId" required><span className="select-wrap"><select name="patientId" required>{choices}</select><ChevronDown aria-hidden="true" /></span></Field><div className="form-grid"><SelectField label="Diagnostic test" name="test" options={["ECG", "Echocardiogram", "Lipid Profile", "Complete Blood Count", "Chest X-ray"]} /><SelectField label="Department" name="department" options={["Cardiology", "Pathology", "Radiology", "Internal Medicine"]} /><SelectField label="Requesting doctor" name="doctor" options={demoDoctors.map((item) => item.name)} /><Field label="Scheduled date" name="date" type="date" required /><label className="form-field form-field-wide"><span>Clinical notes</span><textarea name="note" rows={3} placeholder="Purpose or scheduling notes" /></label></div><p className="field-help">Workflow status only. Do not enter or infer medical conclusions.</p></>}
       {type === "admission" && <><Field label="Patient" name="patientId" required><span className="select-wrap"><select name="patientId" required>{choices}</select><ChevronDown aria-hidden="true" /></span></Field><div className="form-grid"><SelectField label="Ward / service" name="ward" options={["Cardiac care · 3rd floor", "General medicine · 2nd floor", "Neurology · 3rd floor", "Orthopedics · 4th floor"]} /><Field label="Bed" name="bed" required placeholder="e.g. CC-14" /></div><div className="sensitive-action-note"><AlertCircle aria-hidden="true" /><span>The form will prevent a second active admission for the same patient.</span></div></>}
-      {type === "discharge" && <><div className="sensitive-action-note"><ShieldCheck aria-hidden="true" /><span>Confirm that the treating team has reviewed the transition and discharge instructions before recording this status.</span></div><label className="form-field"><span>Discharge notes <i>*</i></span><textarea name="notes" rows={4} required placeholder="Document discharge coordination notes" /></label><label className="confirm-check"><input type="checkbox" required /><span>I confirm this discharge is ready to be recorded in the demonstration workspace.</span></label></>}
-      {type === "assign" && <><div className="form-assurance"><Stethoscope aria-hidden="true" /> {doctor}</div><Field label="Patient" name="patientId" required><span className="select-wrap"><select name="patientId" required>{choices}</select><ChevronDown aria-hidden="true" /></span></Field><p className="field-help">This assignment is illustrative and is not sent to a live care team.</p></>}
+      {type === "discharge" && <><div className="sensitive-action-note"><ShieldCheck aria-hidden="true" /><span>Confirm that the treating team has reviewed the transition and discharge instructions before recording this status.</span></div><label className="form-field"><span>Discharge notes <i>*</i></span><textarea name="notes" rows={4} required placeholder="Document discharge coordination notes" /></label><label className="confirm-check"><input type="checkbox" required /><span>I confirm this discharge is ready to be recorded in the live database.</span></label></>}
+      {type === "assign" && <><div className="form-assurance"><Stethoscope aria-hidden="true" /> {doctor}</div><Field label="Patient" name="patientId" required><span className="select-wrap"><select name="patientId" required>{choices}</select><ChevronDown aria-hidden="true" /></span></Field><p className="field-help">Assigns patient to selected physician.</p></>}
       {type === "report" && <><Field label="Patient" name="patientId" required><span className="select-wrap"><select name="patientId" required>{choices}</select><ChevronDown aria-hidden="true" /></span></Field><div className="form-grid"><SelectField label="Document type" name="type" options={["Clinical summary", "Diagnostic report", "Referral", "Discharge summary", "Other"]} /><Field label="Description" name="description" placeholder="Optional brief description" /></div><label className="upload-dropzone"><input name="file" type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" required disabled={uploading} /><span className="upload-icon"><Download aria-hidden="true" /></span><strong>Choose a file or drop it here</strong><small>PDF, JPG, or PNG · up to 10 MB</small></label><div className="form-assurance"><LockKeyhole aria-hidden="true" /> Files are uploaded securely to Cloudinary & Report Service.</div>{uploading && <div className="upload-progress"><div><span>Adding document to this session</span><strong>{uploadProgress}%</strong></div><span className="progress-track"><i style={{ width: `${uploadProgress}%` }} /></span></div>}</>}
-      <div className="dialog-actions"><button type="button" className="button button-outline" onClick={onClose} disabled={uploading}>Cancel</button><button className="button button-primary" type="submit" disabled={uploading}>{uploading ? "Adding document…" : type === "edit-patient" ? "Save patient details" : type === "patient" ? "Register patient" : type === "record" ? "Save clinical note" : type === "test" ? "Schedule test" : type === "admission" ? "Open admission" : type === "discharge" ? "Confirm discharge" : type === "assign" ? "Confirm assignment" : "Add document"}<ArrowRight aria-hidden="true" /></button></div>
+      <div className="dialog-actions"><button type="button" className="button button-outline" onClick={onClose} disabled={uploading}>Cancel</button><button className="button button-primary" type="submit" disabled={uploading}>{uploading ? "Adding document…" : type === "create-doctor" ? "Create Account & Continue" : type === "create-doctor-profile" ? "Save Doctor Profile" : type === "create-staff" ? "Create Staff Account" : type === "create-patient-account" ? "Create Patient Account" : type === "edit-patient" ? "Save patient details" : type === "patient" ? "Register patient" : type === "record" ? "Save clinical note" : type === "test" ? "Schedule test" : type === "admission" ? "Open admission" : type === "discharge" ? "Confirm discharge" : type === "assign" ? "Confirm assignment" : "Add document"}<ArrowRight aria-hidden="true" /></button></div>
     </form>}</section></div>
 }
 

@@ -243,6 +243,20 @@ export const authApi = {
     });
   },
 
+  async createStaffAccount(email: string, password: string): Promise<AuthResponseDTO> {
+    return request<AuthResponseDTO>("/api/auth/admin/staff", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+  },
+
+  async createPatientAccount(email: string, password: string): Promise<AuthResponseDTO> {
+    return request<AuthResponseDTO>("/api/auth/admin/patients", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+  },
+
   logout(): void {
     removeAuthToken();
   },
@@ -326,6 +340,19 @@ export const doctorApi = {
     registrationNumber: string;
   }): Promise<DoctorDTO> {
     return request<DoctorDTO>("/api/doctors/me/profile", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async createProfile(userId: number, data: {
+    fullName: string;
+    qualification: string;
+    specialization: string;
+    experienceYears: number;
+    registrationNumber: string;
+  }): Promise<DoctorDTO> {
+    return request<DoctorDTO>(`/api/doctors?userId=${userId}`, {
       method: "POST",
       body: JSON.stringify(data),
     });
