@@ -594,6 +594,10 @@ export const clinicalApi = {
 // Hospital Stays (Admissions) API
 // -------------------------------------------------------------
 export const hospitalApi = {
+  async getAllStays(): Promise<HospitalStayDTO[]> {
+    return request<HospitalStayDTO[]>("/api/hospital-stays");
+  },
+
   async getStaysByPatient(patientId: number | string): Promise<HospitalStayDTO[]> {
     return request<HospitalStayDTO[]>(`/api/patients/${patientId}/hospital-stays`);
   },

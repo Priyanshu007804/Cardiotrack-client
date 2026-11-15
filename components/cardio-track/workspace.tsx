@@ -154,6 +154,29 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
                 lastVisit: "Recent",
               }))
               setPatients(mappedPatients)
+
+              try {
+                const allStays = await hospitalApi.getAllStays()
+                if (isMounted && allStays) {
+                  const mappedStays: Admission[] = allStays.map((s) => {
+                    const matched = mappedPatients.find((p) => p.id === `CT-${s.patientId}`)
+                    return {
+                      id: `ADM-${s.id}`,
+                      patientId: `CT-${s.patientId}`,
+                      patient: matched ? matched.name : `Patient #${s.patientId}`,
+                      ward: s.admissionReason ? s.admissionReason.split(" - ")[0] : "Cardiac Care · 3rd floor",
+                      bed: s.admissionReason && s.admissionReason.includes("Bed ") ? s.admissionReason.split("Bed ")[1] : `Bed ${s.id}`,
+                      admitted: s.admissionDate ? new Date(s.admissionDate).toLocaleDateString() : "Recent",
+                      status: s.status === "ADMITTED" ? "Admitted" : "Discharged",
+                      discharged: s.dischargeDate ? new Date(s.dischargeDate).toLocaleDateString() : undefined,
+                      notes: s.notes || s.admissionReason,
+                    }
+                  })
+                  setAdmissions(mappedStays)
+                }
+              } catch (stayErr) {
+                console.warn("Hospital stays load notice:", stayErr)
+              }
             }
           } catch {
             // Using demo data as fallback if backend is warming up
@@ -380,9 +403,22 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
       return
     }
     if (modal === "discharge") {
-      setAdmissions((previous) => previous.map((admission) => admission.id === targetId ? { ...admission, status: "Discharged", discharged: "12 Nov 2026", notes: value("notes") } : admission))
+      const stay = admissions.find((item) => item.id === targetId)
+      if (stay) {
+        const rawStayId = parseInt(stay.id.replace(/\D/g, "")) || 1
+        const rawPatientId = parseInt(stay.patientId.replace(/\D/g, "")) || 1
+        hospitalApi.dischargePatient(rawPatientId, rawStayId).then(() => {
+          setAdmissions((previous) => previous.map((admission) => admission.id === targetId ? { ...admission, status: "Discharged", discharged: "Today", notes: value("notes") } : admission))
+          notify("Discharge recorded and synchronized with database!")
+        }).catch((err) => {
+          setAdmissions((previous) => previous.map((admission) => admission.id === targetId ? { ...admission, status: "Discharged", discharged: "Today", notes: value("notes") } : admission))
+          notify(`Discharge updated (${err.message})`)
+        })
+      } else {
+        setAdmissions((previous) => previous.map((admission) => admission.id === targetId ? { ...admission, status: "Discharged", discharged: "Today", notes: value("notes") } : admission))
+        notify("Discharge recorded.")
+      }
       setModal(null)
-      notify("Discharge recorded. Please ensure the care team has completed the clinical review.")
       return
     }
     if (modal === "assign") {
