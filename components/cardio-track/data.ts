@@ -79,5 +79,5 @@ export const roleSections: Record<Role, Section[]> = {
   Administrator: ["overview", "patients", "doctors", "admissions", "records", "diagnostics", "reports", "staff"],
   Doctor: ["overview", "patients", "records", "diagnostics", "reports"],
   "Hospital staff": ["overview", "patients", "admissions", "reports"],
-  Patient: ["overview", "doctors", "records", "diagnostics", "reports", "admissions"],
+  Patient: ["overview", "patients", "doctors", "records", "diagnostics", "reports", "admissions"],
 }

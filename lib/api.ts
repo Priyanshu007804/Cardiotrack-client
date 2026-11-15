@@ -93,6 +93,40 @@ export interface MedicalReportDTO {
   uploadedById: number;
 }
 
+export type CareLogCategory =
+  | "MEAL"
+  | "MEDICATION"
+  | "DOCTOR_ROUND"
+  | "DIAGNOSTIC_TEST"
+  | "VITALS_NURSE_NOTE"
+  | "GENERAL";
+
+export interface PatientCareLogDTO {
+  id: number;
+  patientId: number;
+  hospitalStayId?: number;
+  logDate: string;
+  logTime: string;
+  category: CareLogCategory;
+  title: string;
+  description?: string;
+  recordedBy?: string;
+  recordedByRole?: string;
+  status?: string;
+  createdAt?: string;
+}
+
+export interface CreateCareLogRequest {
+  hospitalStayId?: number;
+  logDate?: string;
+  logTime?: string;
+  category: CareLogCategory;
+  title: string;
+  description?: string;
+  recordedBy?: string;
+  status?: string;
+}
+
 export const toClientRole = (role?: string): ClientRole => {
   const normalized = (role || "").replace("ROLE_", "").toUpperCase();
   switch (normalized) {
@@ -624,4 +658,38 @@ export const reportApi = {
     });
   },
 };
+
+// -------------------------------------------------------------
+// Patient Care Logs (Daily Care Diary / Log) API
+// -------------------------------------------------------------
+export const careLogApi = {
+  async getByPatient(
+    patientId: number | string,
+    date?: string
+  ): Promise<PatientCareLogDTO[]> {
+    const query = date ? `?date=${encodeURIComponent(date)}` : "";
+    return request<PatientCareLogDTO[]>(`/api/patients/${patientId}/care-logs${query}`);
+  },
+
+  async create(
+    patientId: number | string,
+    data: CreateCareLogRequest
+  ): Promise<PatientCareLogDTO> {
+    return request<PatientCareLogDTO>(`/api/patients/${patientId}/care-logs`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getByStay(stayId: number | string): Promise<PatientCareLogDTO[]> {
+    return request<PatientCareLogDTO[]>(`/api/hospital-stays/${stayId}/care-logs`);
+  },
+
+  async delete(logId: number | string): Promise<void> {
+    return request<void>(`/api/hospital-care-logs/${logId}`, {
+      method: "DELETE",
+    });
+  },
+};
+
 

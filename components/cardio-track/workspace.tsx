@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
-import { Activity, AlertCircle, ArrowDownRight, ArrowRight, ArrowUpRight, Bell, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, ClipboardList, Download, FileHeart, FilePlus2, Filter, HeartPulse, LayoutDashboard, LockKeyhole, LogOut, Menu, MoreHorizontal, Plus, Search, Settings, ShieldCheck, Stethoscope, TestTube2, UserRound, UserRoundPlus, UsersRound, X } from "lucide-react"
+import { Activity, AlertCircle, ArrowDownRight, ArrowRight, ArrowUpRight, Bell, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, ClipboardList, Clock, Download, FileHeart, FilePlus2, Filter, HeartPulse, LayoutDashboard, LockKeyhole, LogOut, Menu, MoreHorizontal, Pill, Plus, Search, Settings, ShieldCheck, Stethoscope, TestTube2, Trash2, UserRound, UserRoundPlus, UsersRound, Utensils, X } from "lucide-react"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import type { LucideIcon } from "lucide-react"
 import { demoDoctors, roleSections, type Admission, type DiagnosticTest, type MedicalRecord, type MedicalReport, type Patient, type Role, type Section } from "./data"
-import { patientApi, doctorApi, clinicalApi, hospitalApi, reportApi, authApi, type DoctorDTO, type UserSummaryDTO } from "@/lib/api"
+import { patientApi, doctorApi, clinicalApi, hospitalApi, reportApi, authApi, careLogApi, type DoctorDTO, type UserSummaryDTO, type PatientCareLogDTO, type CareLogCategory, type CreateCareLogRequest } from "@/lib/api"
 
 const sectionNames: Record<Section, string> = { overview: "Overview", patients: "Patients", doctors: "Doctors", records: "Clinical records", diagnostics: "Diagnostic tests", reports: "Medical reports", admissions: "Hospital stays", staff: "Staff access", settings: "Settings" }
 const sectionIcons: Record<Section, LucideIcon> = { overview: LayoutDashboard, patients: UsersRound, doctors: Stethoscope, records: ClipboardList, diagnostics: TestTube2, reports: FileHeart, admissions: Activity, staff: UserRoundPlus, settings: Settings }
@@ -14,7 +14,7 @@ const activityChartConfig = { visits: { label: "Patient visits", color: "var(--c
 const activityChartData = [{ day: "Mon", visits: 0 }, { day: "Tue", visits: 0 }, { day: "Wed", visits: 0 }, { day: "Thu", visits: 0 }, { day: "Fri", visits: 0 }, { day: "Sat", visits: 0 }, { day: "Sun", visits: 0 }]
 const roleWelcome: Record<Role, string> = { Administrator: "Administrator", Doctor: "Doctor", "Hospital staff": "Hospital Staff", Patient: "Patient" }
 
-type ModalType = "patient" | "edit-patient" | "record" | "test" | "admission" | "report" | "discharge" | "assign" | "delete" | "create-doctor" | "create-staff" | "create-patient-account" | "create-doctor-profile" | null
+type ModalType = "patient" | "edit-patient" | "record" | "test" | "admission" | "report" | "discharge" | "assign" | "delete" | "create-doctor" | "create-staff" | "create-patient-account" | "create-doctor-profile" | "care-log" | null
 
 type WorkspaceProps = { role: Role; userName: string; onSignOut: () => void; onSwitchRole: (role: Role) => void }
 
@@ -25,6 +25,8 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
   const [tests, setTests] = useState<DiagnosticTest[]>([])
   const [reports, setReports] = useState<MedicalReport[]>([])
   const [admissions, setAdmissions] = useState<Admission[]>([])
+  const [careLogs, setCareLogs] = useState<PatientCareLogDTO[]>([])
+  const [careLogsLoading, setCareLogsLoading] = useState(false)
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
   const [patientTab, setPatientTab] = useState("Overview")
   const [query, setQuery] = useState("")
@@ -64,6 +66,7 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
               }
               setPatients([livePatient])
               setSelectedPatient(livePatient)
+              fetchCareLogs(profile.id)
             }
           } catch {
             // Patient profile not yet created or local fallback
@@ -211,6 +214,21 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
     setToast(message)
     window.setTimeout(() => setToast(""), 3200)
   }
+
+  const fetchCareLogs = async (patientId: string | number) => {
+    const rawId = typeof patientId === "number" ? patientId : parseInt(patientId.replace(/\D/g, "")) || 1
+    setCareLogsLoading(true)
+    try {
+      const logs = await careLogApi.getByPatient(rawId)
+      setCareLogs(logs || [])
+    } catch (err) {
+      console.error("Failed to fetch care logs:", err)
+      setCareLogs([])
+    } finally {
+      setCareLogsLoading(false)
+    }
+  }
+
   const navigate = (next: Section) => {
     setSection(next)
     setQuery("")
@@ -222,6 +240,17 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
     setSelectedPatient(patient)
     setPatientTab("Overview")
     setSection("patients")
+    fetchCareLogs(patient.id)
+  }
+  const handleDeleteCareLog = async (logId: number) => {
+    if (!confirm("Are you sure you want to delete this daily care entry?")) return
+    try {
+      await careLogApi.delete(logId)
+      setCareLogs((previous) => previous.filter((l) => l.id !== logId))
+      notify("Care log entry removed.")
+    } catch (err: any) {
+      notify(`Failed to delete care log: ${err.message}`)
+    }
   }
   const startModal = (next: ModalType) => {
     setModal(next)
@@ -504,6 +533,42 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
       })
       return
     }
+    if (modal === "care-log") {
+      const patient = patients.find((item) => item.id === value("patientId")) ?? selectedPatient ?? patients[0]
+      if (!patient) {
+        notify("Please select a patient to record a care log.")
+        return
+      }
+      const rawId = parseInt(patient.id.replace(/\D/g, "")) || 1
+      let categoryRaw = value("category")
+      if (categoryRaw.includes(" - ")) {
+        categoryRaw = categoryRaw.split(" - ")[0]
+      }
+      const category = categoryRaw as CareLogCategory
+      const title = value("title")
+      const description = value("description")
+      const recordedBy = value("recordedBy") || userName || "Hospital Staff"
+      const logDate = value("logDate") || new Date().toISOString().split("T")[0]
+      const logTime = value("logTime") || new Date().toTimeString().slice(0, 5)
+      const status = value("status") || "Completed"
+
+      careLogApi.create(rawId, {
+        category,
+        title,
+        description,
+        recordedBy,
+        logDate,
+        logTime,
+        status,
+      }).then((savedLog) => {
+        setCareLogs((previous) => [savedLog, ...previous])
+        setModal(null)
+        notify(`Daily care log recorded: ${title}`)
+      }).catch((err) => {
+        notify(`Failed to save care log: ${err.message}`)
+      })
+      return
+    }
   }
 
   const openDischarge = (id: string) => { setTargetId(id); startModal("discharge") }
@@ -522,7 +587,7 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
           {permittedSections.map((item) => {
             const Icon = sectionIcons[item]
             const active = section === item || (section === "patients" && selectedPatient && item === "patients")
-            return <button key={item} className={`side-nav-item ${active ? "active" : ""}`} onClick={() => navigate(item)} aria-current={active ? "page" : undefined} title={collapsed ? sectionNames[item] : undefined}><Icon aria-hidden="true" /><span>{role === "Patient" && item === "overview" ? "My health" : role === "Patient" && item === "doctors" ? "My doctors" : role === "Patient" && item === "admissions" ? "Hospital stays" : sectionNames[item]}</span>{item === "admissions" && role !== "Patient" && <span className="nav-count">2</span>}</button>
+            return <button key={item} className={`side-nav-item ${active ? "active" : ""}`} onClick={() => navigate(item)} aria-current={active ? "page" : undefined} title={collapsed ? sectionNames[item] : undefined}><Icon aria-hidden="true" /><span>{role === "Patient" && item === "overview" ? "My health" : role === "Patient" && item === "patients" ? "Daily Care Diary" : role === "Patient" && item === "doctors" ? "My doctors" : role === "Patient" && item === "admissions" ? "Hospital stays" : sectionNames[item]}</span>{item === "admissions" && role !== "Patient" && <span className="nav-count">2</span>}</button>
           })}
         </nav>
         <div className="sidebar-bottom">
@@ -546,8 +611,8 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
 
         {menuOpen && <button aria-label="Close menu" className="popover-dismiss" onClick={() => setMenuOpen(null)} />}
         <div className="workspace-content" id="workspace">
-          {section === "overview" && <Overview role={role} name={currentName} patients={patients} records={records} tests={tests} admissions={admissions} onNavigate={navigate} onOpenPatient={openPatient} />}
-          {section === "patients" && (selectedPatient ? <PatientProfile patient={selectedPatient} records={records.filter((item) => item.patientId === selectedPatient.id)} tests={tests.filter((item) => item.patientId === selectedPatient.id)} reports={reports.filter((item) => item.patientId === selectedPatient.id)} admissions={admissions.filter((item) => item.patientId === selectedPatient.id)} tab={patientTab} onTab={setPatientTab} onBack={() => setSelectedPatient(null)} onOpenReport={setPreviewReport} canEdit={role === "Administrator" || role === "Hospital staff"} onEdit={() => openPatientEdit(selectedPatient)} /> : <PatientDirectory patients={visiblePatients} role={role} query={query} filter={filter} onFilter={setFilter} onAdd={() => startModal("patient")} onOpen={openPatient} />)}
+          {section === "overview" && <Overview role={role} name={currentName} patients={patients} records={records} tests={tests} admissions={admissions} careLogs={careLogs} onNavigate={navigate} onOpenPatient={openPatient} />}
+          {section === "patients" && (selectedPatient ? <PatientProfile patient={selectedPatient} records={records.filter((item) => item.patientId === selectedPatient.id)} tests={tests.filter((item) => item.patientId === selectedPatient.id)} reports={reports.filter((item) => item.patientId === selectedPatient.id)} admissions={admissions.filter((item) => item.patientId === selectedPatient.id)} careLogs={careLogs} careLogsLoading={careLogsLoading} role={role} tab={patientTab} onTab={setPatientTab} onBack={() => setSelectedPatient(null)} onOpenReport={setPreviewReport} canEdit={role === "Administrator" || role === "Hospital staff"} onEdit={() => openPatientEdit(selectedPatient)} onAddCareLog={() => startModal("care-log")} onDeleteCareLog={handleDeleteCareLog} /> : <PatientDirectory patients={visiblePatients} role={role} query={query} filter={filter} onFilter={setFilter} onAdd={() => startModal("patient")} onOpen={openPatient} />)}
           {section === "doctors" && <DoctorsPage role={role} patients={patients} liveDoctors={liveDoctors} onAssign={(name) => { setModalDoctor(name); startModal("assign") }} onOpenPatient={openPatient} onAddDoctor={() => startModal("create-doctor")} />}
           {section === "records" && <RecordsPage records={records.filter((item) => `${item.patient} ${item.title} ${item.diagnosis}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onAdd={() => startModal("record")} onOpenPatient={openPatient} />}
           {section === "diagnostics" && <DiagnosticsPage tests={tests.filter((item) => `${item.patient} ${item.test} ${item.department}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onAdd={() => startModal("test")} onOpenPatient={openPatient} />}
@@ -564,7 +629,7 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
   )
 }
 
-function Overview({ role, name, patients, records, tests, admissions, onNavigate, onOpenPatient }: { role: Role; name: string; patients: Patient[]; records: MedicalRecord[]; tests: DiagnosticTest[]; admissions: Admission[]; onNavigate: (section: Section) => void; onOpenPatient: (patient: Patient) => void }) {
+function Overview({ role, name, patients, records, tests, admissions, careLogs = [], onNavigate, onOpenPatient }: { role: Role; name: string; patients: Patient[]; records: MedicalRecord[]; tests: DiagnosticTest[]; admissions: Admission[]; careLogs?: PatientCareLogDTO[]; onNavigate: (section: Section) => void; onOpenPatient: (patient: Patient) => void }) {
   const patientView = role === "Patient"
   const activeAdmissions = admissions.filter((item) => item.status === "Admitted")
   const shownPatients = patients
@@ -576,14 +641,14 @@ function Overview({ role, name, patients, records, tests, admissions, onNavigate
   const ownStays = admissions
   const activeOwnStay = ownStays.some((item) => item.status === "Admitted")
   return <div className="page-stack">
-    <div className="page-heading"><div><div className="eyebrow">{patientView ? "YOUR CARE, AT A GLANCE" : "HOSPITAL OPERATIONS"}</div><h1>{`Welcome, ${name.split(" ")[0]}`}</h1><p>{patientView ? "Your care information, synchronized from live database." : "A clear view of patient activity at CardioTrack Medical Centre."}</p></div><div className="date-chip"><CalendarDays aria-hidden="true" /> Live Connected</div></div>
-    <div className="demo-banner"><span><ShieldCheck aria-hidden="true" /></span><div><strong>Live Database Connected</strong><p>All records, tests, admissions, and reports are synchronized directly with Neon PostgreSQL.</p></div><span className="demo-pill" style={{ background: "var(--teal)", color: "#fff" }}>LIVE</span></div>
+    <div className="page-heading"><div><div className="eyebrow">{patientView ? "YOUR CARE, AT A GLANCE" : "HOSPITAL OPERATIONS"}</div><h1>{`Welcome, ${name.split(" ")[0]}`}</h1><p>{patientView ? "Your care information & daily diary, synchronized from live database." : "A clear view of patient activity at CardioTrack Medical Centre."}</p></div><div className="date-chip"><CalendarDays aria-hidden="true" /> Live Connected</div></div>
+    <div className="demo-banner"><span><ShieldCheck aria-hidden="true" /></span><div><strong>Live Database Connected</strong><p>All care logs, records, tests, admissions, and reports are synchronized directly with Neon PostgreSQL.</p></div><span className="demo-pill" style={{ background: "var(--teal)", color: "#fff" }}>LIVE</span></div>
     <div className="stats-grid">
       {patientView ? <>
         <StatCard label="Care team" value="Assigned" detail="Your treating clinicians" icon={Stethoscope} tone="teal" />
+        <StatCard label="Daily care logs" value={String(careLogs.length).padStart(2, "0")} detail={careLogs.length === 1 ? "1 daily entry logged" : `${careLogs.length} care diary entries`} icon={Utensils} tone="amber" />
         <StatCard label="Clinical records" value={String(ownRecordCount).padStart(2, "0")} detail={ownRecordCount === 1 ? "1 entry in your history" : `${ownRecordCount} entries in your history`} icon={ClipboardList} tone="blue" />
-        <StatCard label="Diagnostic tests" value={String(ownTests.length).padStart(2, "0")} detail={upcomingTestCount === 1 ? "1 upcoming appointment" : `${upcomingTestCount} scheduled tests`} icon={TestTube2} tone="violet" />
-        <StatCard label="Hospital stays" value={String(ownStays.length).padStart(2, "0")} detail={activeOwnStay ? "Active admission" : ownStays.length ? "Past hospital stays" : "No hospital stays recorded"} icon={Activity} tone="amber" />
+        <StatCard label="Hospital stays" value={String(ownStays.length).padStart(2, "0")} detail={activeOwnStay ? "Active admission" : ownStays.length ? "Past hospital stays" : "No hospital stays recorded"} icon={Activity} tone="violet" />
       </> : <>
         <StatCard label="Registered patients" value={String(patients.length)} detail="Synchronized from Neon DB" icon={UsersRound} tone="teal" />
         <StatCard label="Active admissions" value={String(activeAdmissions.length)} detail="Current inpatient stays" icon={Activity} tone="blue" />
@@ -592,20 +657,38 @@ function Overview({ role, name, patients, records, tests, admissions, onNavigate
       </>}
     </div>
     <div className="overview-grid">
-      <section className="surface-card activity-chart-card"><div className="card-heading"><div><h2>{patientView ? "Your care timeline" : "Care activity"}</h2><p>{patientView ? "Recent updates to your care record" : "Patient visits across the last 7 days"}</p></div><button className="button button-outline button-small" onClick={() => onNavigate(patientView ? "records" : "patients")}>View details <ArrowRight aria-hidden="true" /></button></div>
-        {patientView ? <div className="timeline-list"><TimelineItem date="12 Nov" title="Follow-up consultation" subtitle="Cardiology · Dr. Arindam Bose" tone="teal" /><TimelineItem date="13 Nov" title="ECG appointment" subtitle="Scheduled · Cardiology" tone="blue" /><TimelineItem date="07 Nov" title="Clinical summary added" subtitle="Patient records" tone="amber" /></div> : <ChartContainer config={activityChartConfig} className="activity-chart-plot" aria-label="Demonstration patient visits across the last seven days"><BarChart accessibilityLayer data={activityChartData} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}><CartesianGrid vertical={false} /><XAxis dataKey="day" tickLine={false} axisLine={false} tickMargin={9} /><YAxis domain={[0, 50]} tickCount={6} tickLine={false} axisLine={false} width={34} /><ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} /><Bar dataKey="visits" fill="var(--color-visits)" radius={[5, 5, 0, 0]} maxBarSize={30} /></BarChart></ChartContainer>}
-        <div className="chart-footnote"><span><i className="legend-dot" /> {patientView ? "Care events" : "Patient visits"}</span><span>Illustrative weekly activity</span></div>
+      <section className="surface-card activity-chart-card"><div className="card-heading"><div><h2>{patientView ? "Today’s care & diet timeline" : "Care activity"}</h2><p>{patientView ? "Recent meals, medicines, and doctor visits" : "Patient visits across the last 7 days"}</p></div><button className="button button-outline button-small" onClick={() => onNavigate(patientView ? "patients" : "records")}>View care diary <ArrowRight aria-hidden="true" /></button></div>
+        {patientView ? <div className="timeline-list">
+          {careLogs.length > 0 ? (
+            careLogs.slice(0, 3).map((log) => (
+              <TimelineItem
+                key={log.id}
+                date={log.logTime ? log.logTime.slice(0, 5) : log.logDate}
+                title={log.title}
+                subtitle={`${log.category.replace(/_/g, " ")} · ${log.recordedBy || "Staff"}`}
+                tone={log.category === "MEAL" ? "amber" : log.category === "MEDICATION" ? "violet" : log.category === "DOCTOR_ROUND" ? "blue" : "teal"}
+              />
+            ))
+          ) : (
+            <>
+              <TimelineItem date="12 Nov" title="Follow-up consultation" subtitle="Cardiology · Dr. Arindam Bose" tone="teal" />
+              <TimelineItem date="13 Nov" title="ECG appointment" subtitle="Scheduled · Cardiology" tone="blue" />
+              <TimelineItem date="07 Nov" title="Clinical summary added" subtitle="Patient records" tone="amber" />
+            </>
+          )}
+        </div> : <ChartContainer config={activityChartConfig} className="activity-chart-plot" aria-label="Demonstration patient visits across the last seven days"><BarChart accessibilityLayer data={activityChartData} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}><CartesianGrid vertical={false} /><XAxis dataKey="day" tickLine={false} axisLine={false} tickMargin={9} /><YAxis domain={[0, 50]} tickCount={6} tickLine={false} axisLine={false} width={34} /><ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} /><Bar dataKey="visits" fill="var(--color-visits)" radius={[5, 5, 0, 0]} maxBarSize={30} /></BarChart></ChartContainer>}
+        <div className="chart-footnote"><span><i className="legend-dot" /> {patientView ? "Care diary updates" : "Patient visits"}</span><span>Illustrative weekly activity</span></div>
       </section>
       <section className="surface-card care-queue-card"><div className="card-heading"><div><h2>{patientView ? "Your care team" : role === "Doctor" ? "Today’s schedule" : "Recent care activity"}</h2><p>{patientView ? "Your assigned physician" : "Updates across the hospital"}</p></div><button className="icon-button" aria-label="More activity options"><MoreHorizontal aria-hidden="true" /></button></div>
         {patientView ? <div className="doctor-compact"><span className="doctor-avatar avatar-teal">AB</span><div><strong>Dr. Arindam Bose</strong><small>Cardiology · Treating physician</small><span className="available-label"><i /> Your care team</span></div><button className="icon-button" aria-label="View your doctor" onClick={() => onNavigate("doctors")}><ArrowUpRight aria-hidden="true" /></button></div> : <div className="activity-list"><ActivityItem icon={UserRoundPlus} tone="teal" title="Patient registered" detail="New patient added to the directory" time="09:42 AM" /><ActivityItem icon={FilePlus2} tone="blue" title="Clinical note recorded" detail="Cardiology · Patient follow-up" time="10:18 AM" /><ActivityItem icon={TestTube2} tone="amber" title="Diagnostic test scheduled" detail="Cardiology · ECG appointment" time="11:05 AM" /><ActivityItem icon={FileHeart} tone="violet" title="Report added" detail="A new document is ready for review" time="11:32 AM" /></div>}
-        <button className="activity-link" onClick={() => onNavigate(patientView ? "records" : "records")}>View {patientView ? "your records" : "all clinical activity"} <ArrowRight aria-hidden="true" /></button>
+        <button className="activity-link" onClick={() => onNavigate(patientView ? "patients" : "records")}>View {patientView ? "care diary" : "all clinical activity"} <ArrowRight aria-hidden="true" /></button>
       </section>
     </div>
     <div className="bottom-overview-grid">
       <section className="surface-card table-card"><div className="card-heading"><div><h2>{patientView ? "Your latest records" : "Recently seen patients"}</h2><p>{patientView ? "Entries recorded by your care team" : "Latest patient activity across the hospital"}</p></div><button className="text-link" onClick={() => onNavigate(patientView ? "records" : "patients")}>View all <ArrowRight aria-hidden="true" /></button></div>
         {patientView ? <div className="record-preview-list">{[ownRecord, ownTest].filter(Boolean).map((item, index) => <button className="record-preview-row" key={item!.id} onClick={() => onNavigate(index === 0 ? "records" : "diagnostics")}><span className={`row-icon ${index === 0 ? "tone-teal" : "tone-blue"}`}>{index === 0 ? <ClipboardList /> : <TestTube2 />}</span><span><strong>{index === 0 ? "Follow-up consultation" : "ECG appointment"}</strong><small>{index === 0 ? "12 Nov 2026 · Clinical record" : "13 Nov 2026 · Scheduled test"}</small></span><ChevronRight aria-hidden="true" /></button>)}</div> : <div className="compact-patient-list">{patients.slice(0, 4).map((patient) => <button key={patient.id} className="compact-patient-row" onClick={() => onOpenPatient(patient)}><span className="patient-avatar">{initials(patient.name)}</span><span className="compact-patient-main"><strong>{patient.name}</strong><small>{patient.age} years · {patient.gender}</small></span><span className="compact-patient-date">{patient.lastVisit}</span><ChevronRight aria-hidden="true" /></button>)}</div>}
       </section>
-      <section className="surface-card quick-actions-card"><div className="card-heading"><div><h2>Quick actions</h2><p>Common tasks for your workspace</p></div></div><div className="quick-action-list">{(patientView ? [{ title: "View medical records", icon: ClipboardList, section: "records" as Section }, { title: "View upcoming tests", icon: TestTube2, section: "diagnostics" as Section }, { title: "Contact your care team", icon: Stethoscope, section: "doctors" as Section }] : [{ title: "Find a patient", icon: Search, section: "patients" as Section }, { title: "Review hospital stays", icon: Activity, section: "admissions" as Section }, { title: "Open clinical records", icon: FileHeart, section: "records" as Section }]).map((action) => <button className="quick-action" key={action.title} onClick={() => onNavigate(action.section)}><span><action.icon aria-hidden="true" /></span>{action.title}<ArrowRight aria-hidden="true" /></button>)}</div><div className="privacy-note"><LockKeyhole aria-hidden="true" /><span>Only authorized care team members can access patient details.</span></div></section>
+      <section className="surface-card quick-actions-card"><div className="card-heading"><div><h2>Quick actions</h2><p>Common tasks for your workspace</p></div></div><div className="quick-action-list">{(patientView ? [{ title: "View daily care diary", icon: Utensils, section: "patients" as Section }, { title: "View medical records", icon: ClipboardList, section: "records" as Section }, { title: "View upcoming tests", icon: TestTube2, section: "diagnostics" as Section }, { title: "Contact your care team", icon: Stethoscope, section: "doctors" as Section }] : [{ title: "Find a patient", icon: Search, section: "patients" as Section }, { title: "Review hospital stays", icon: Activity, section: "admissions" as Section }, { title: "Open clinical records", icon: FileHeart, section: "records" as Section }]).map((action) => <button className="quick-action" key={action.title} onClick={() => onNavigate(action.section)}><span><action.icon aria-hidden="true" /></span>{action.title}<ArrowRight aria-hidden="true" /></button>)}</div><div className="privacy-note"><LockKeyhole aria-hidden="true" /><span>Only authorized care team members can access patient details.</span></div></section>
     </div>
     <p className="page-disclaimer"><ShieldCheck aria-hidden="true" /> Demonstration data is fictional and not intended for clinical decisions.</p>
   </div>
@@ -628,16 +711,458 @@ function PatientDirectory({ patients, role, query, filter, onFilter, onAdd, onOp
   </div>
 }
 
-function PatientProfile({ patient, records, tests, reports, admissions, tab, onTab, onBack, onOpenReport, canEdit, onEdit }: { patient: Patient; records: MedicalRecord[]; tests: DiagnosticTest[]; reports: MedicalReport[]; admissions: Admission[]; tab: string; onTab: (tab: string) => void; onBack: () => void; onOpenReport: (report: MedicalReport) => void; canEdit: boolean; onEdit: () => void }) {
-  const tabs = ["Overview", "Medical Records", "Diagnostic Tests", "Reports", "Hospital Stays"]
+const careCategoryMeta: Record<
+  CareLogCategory,
+  { label: string; icon: LucideIcon; badgeColor: string; bgTone: string; iconColor: string }
+> = {
+  MEAL: {
+    label: "Meal / Diet",
+    icon: Utensils,
+    badgeColor: "#ea580c",
+    bgTone: "rgba(234, 88, 12, 0.1)",
+    iconColor: "#ea580c",
+  },
+  MEDICATION: {
+    label: "Medication",
+    icon: Pill,
+    badgeColor: "#7c3aed",
+    bgTone: "rgba(124, 58, 237, 0.1)",
+    iconColor: "#7c3aed",
+  },
+  DOCTOR_ROUND: {
+    label: "Doctor Round",
+    icon: Stethoscope,
+    badgeColor: "#0284c7",
+    bgTone: "rgba(2, 132, 199, 0.1)",
+    iconColor: "#0284c7",
+  },
+  DIAGNOSTIC_TEST: {
+    label: "Diagnostic Test",
+    icon: TestTube2,
+    badgeColor: "#d97706",
+    bgTone: "rgba(217, 119, 6, 0.1)",
+    iconColor: "#d97706",
+  },
+  VITALS_NURSE_NOTE: {
+    label: "Vitals & Nursing",
+    icon: HeartPulse,
+    badgeColor: "#059669",
+    bgTone: "rgba(5, 150, 105, 0.1)",
+    iconColor: "#059669",
+  },
+  GENERAL: {
+    label: "General Care",
+    icon: Activity,
+    badgeColor: "#475569",
+    bgTone: "rgba(71, 85, 105, 0.1)",
+    iconColor: "#475569",
+  },
+}
+
+function CareLogList({
+  careLogs,
+  loading,
+  canAdd,
+  canDelete,
+  onAdd,
+  onDelete,
+}: {
+  careLogs: PatientCareLogDTO[]
+  loading: boolean
+  canAdd: boolean
+  canDelete: boolean
+  onAdd: () => void
+  onDelete: (id: number) => void
+}) {
+  const [filterCat, setFilterCat] = useState<string>("ALL")
+  const [filterDate, setFilterDate] = useState<string>("")
+
+  const categories = [
+    { key: "ALL", label: "All Logs", count: careLogs.length },
+    { key: "MEAL", label: "Meals 🍳", count: careLogs.filter((l) => l.category === "MEAL").length },
+    { key: "MEDICATION", label: "Medicines 💊", count: careLogs.filter((l) => l.category === "MEDICATION").length },
+    { key: "DOCTOR_ROUND", label: "Doctor Rounds 🩺", count: careLogs.filter((l) => l.category === "DOCTOR_ROUND").length },
+    { key: "DIAGNOSTIC_TEST", label: "Tests 🧪", count: careLogs.filter((l) => l.category === "DIAGNOSTIC_TEST").length },
+    { key: "VITALS_NURSE_NOTE", label: "Vitals 📋", count: careLogs.filter((l) => l.category === "VITALS_NURSE_NOTE").length },
+    { key: "GENERAL", label: "General Care 🌿", count: careLogs.filter((l) => l.category === "GENERAL").length },
+  ]
+
+  const filteredLogs = careLogs.filter((log) => {
+    if (filterCat !== "ALL" && log.category !== filterCat) return false
+    if (filterDate && log.logDate !== filterDate) return false
+    return true
+  })
+
+  const groupedByDate: Record<string, PatientCareLogDTO[]> = {}
+  for (const log of filteredLogs) {
+    const d = log.logDate || "Unspecified Date"
+    if (!groupedByDate[d]) groupedByDate[d] = []
+    groupedByDate[d].push(log)
+  }
+
+  const sortedDates = Object.keys(groupedByDate).sort((a, b) => b.localeCompare(a))
+
+  return (
+    <div className="care-log-container" style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      <div
+        className="surface-card"
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: "1rem",
+          padding: "1.25rem 1.5rem",
+        }}
+      >
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <span style={{ fontSize: "1.25rem" }}>📋</span>
+            <h2 style={{ fontSize: "1.15rem", fontWeight: 700, margin: 0 }}>
+              Daily Patient Care Diary
+            </h2>
+            <span
+              style={{
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                padding: "0.2rem 0.55rem",
+                borderRadius: "999px",
+                background: "rgba(13, 148, 136, 0.12)",
+                color: "var(--teal, #0d9488)",
+              }}
+            >
+              Patient Family Transparency
+            </span>
+          </div>
+          <p style={{ margin: "0.25rem 0 0", fontSize: "0.85rem", color: "var(--text-muted, #64748b)" }}>
+            Complete chronological record of meals served, medicines administered, doctor visits, diagnostic tests, and vital observations.
+          </p>
+        </div>
+
+        {canAdd && (
+          <button className="button button-primary" onClick={onAdd}>
+            <Plus aria-hidden="true" /> Record Care Entry
+          </button>
+        )}
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: "0.75rem",
+        }}
+      >
+        <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+          {categories.map((c) => (
+            <button
+              key={c.key}
+              onClick={() => setFilterCat(c.key)}
+              style={{
+                padding: "0.35rem 0.75rem",
+                borderRadius: "999px",
+                fontSize: "0.82rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                border: filterCat === c.key ? "1px solid var(--teal, #0d9488)" : "1px solid var(--border-color, #e2e8f0)",
+                background: filterCat === c.key ? "var(--teal, #0d9488)" : "var(--surface, #ffffff)",
+                color: filterCat === c.key ? "#ffffff" : "var(--foreground, #334155)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.35rem",
+                transition: "all 0.15s ease",
+              }}
+            >
+              <span>{c.label}</span>
+              <span
+                style={{
+                  fontSize: "0.72rem",
+                  opacity: 0.85,
+                  background: filterCat === c.key ? "rgba(255,255,255,0.25)" : "rgba(0,0,0,0.06)",
+                  padding: "0.05rem 0.4rem",
+                  borderRadius: "999px",
+                }}
+              >
+                {c.count}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <label style={{ fontSize: "0.82rem", color: "var(--text-muted, #64748b)" }}>Filter date:</label>
+          <input
+            type="date"
+            value={filterDate}
+            onChange={(e) => setFilterDate(e.target.value)}
+            style={{
+              padding: "0.3rem 0.6rem",
+              borderRadius: "6px",
+              border: "1px solid var(--border-color, #cbd5e1)",
+              fontSize: "0.82rem",
+            }}
+          />
+          {filterDate && (
+            <button
+              className="button button-outline button-small"
+              onClick={() => setFilterDate("")}
+              style={{ padding: "0.3rem 0.5rem", fontSize: "0.75rem" }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      {loading && (
+        <div style={{ padding: "3rem", textAlign: "center", color: "var(--text-muted, #64748b)" }}>
+          <Activity className="animate-spin" style={{ margin: "0 auto 0.5rem", width: "24px", height: "24px" }} />
+          <p>Loading patient daily care logs from database...</p>
+        </div>
+      )}
+
+      {!loading && filteredLogs.length === 0 && (
+        <EmptyState
+          title={filterCat !== "ALL" || filterDate ? "No logs matching filters" : "No Care Logs Recorded Yet"}
+          text={
+            canAdd
+              ? "Click 'Record Care Entry' above to document meals, medications, doctor visits, or vitals for the patient party."
+              : "Hospital staff has not recorded daily care logs for this patient yet."
+          }
+        />
+      )}
+
+      {!loading && filteredLogs.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+          {sortedDates.map((dateStr) => {
+            const dayLogs = groupedByDate[dateStr]
+            return (
+              <section key={dateStr} className="care-log-day-group">
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.75rem",
+                    marginBottom: "0.85rem",
+                  }}
+                >
+                  <CalendarDays style={{ width: "16px", height: "16px", color: "var(--teal, #0d9488)" }} />
+                  <h3 style={{ fontSize: "0.95rem", fontWeight: 700, margin: 0, color: "var(--foreground, #1e293b)" }}>
+                    {dateStr}
+                  </h3>
+                  <span
+                    style={{
+                      fontSize: "0.75rem",
+                      padding: "0.15rem 0.5rem",
+                      borderRadius: "6px",
+                      background: "rgba(0,0,0,0.05)",
+                      color: "var(--text-muted, #64748b)",
+                    }}
+                  >
+                    {dayLogs.length} {dayLogs.length === 1 ? "entry" : "entries"}
+                  </span>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                  {dayLogs.map((log) => {
+                    const meta = careCategoryMeta[log.category] || careCategoryMeta.GENERAL
+                    const IconComponent = meta.icon
+
+                    return (
+                      <article
+                        key={log.id}
+                        className="surface-card"
+                        style={{
+                          padding: "1rem 1.25rem",
+                          borderRadius: "12px",
+                          border: "1px solid var(--border-color, #e2e8f0)",
+                          display: "flex",
+                          gap: "1rem",
+                          alignItems: "flex-start",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: "42px",
+                            height: "42px",
+                            borderRadius: "10px",
+                            background: meta.bgTone,
+                            color: meta.iconColor,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <IconComponent style={{ width: "20px", height: "20px" }} />
+                        </div>
+
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              flexWrap: "wrap",
+                              gap: "0.5rem",
+                              marginBottom: "0.35rem",
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                              <span
+                                style={{
+                                  fontSize: "0.72rem",
+                                  fontWeight: 700,
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.04em",
+                                  color: meta.badgeColor,
+                                  background: meta.bgTone,
+                                  padding: "0.15rem 0.5rem",
+                                  borderRadius: "4px",
+                                }}
+                              >
+                                {meta.label}
+                              </span>
+
+                              {log.logTime && (
+                                <span
+                                  style={{
+                                    fontSize: "0.78rem",
+                                    color: "var(--text-muted, #64748b)",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "0.25rem",
+                                  }}
+                                >
+                                  <Clock style={{ width: "12px", height: "12px" }} />
+                                  {log.logTime.slice(0, 5)}
+                                </span>
+                              )}
+                            </div>
+
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                              {log.status && <StatusPill status={log.status} />}
+                              {canDelete && (
+                                <button
+                                  className="icon-button"
+                                  style={{ color: "#ef4444", width: "28px", height: "28px" }}
+                                  aria-label="Delete care log"
+                                  onClick={() => onDelete(log.id)}
+                                  title="Delete entry"
+                                >
+                                  <Trash2 style={{ width: "14px", height: "14px" }} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <h4
+                            style={{
+                              fontSize: "1rem",
+                              fontWeight: 600,
+                              margin: "0 0 0.35rem",
+                              color: "var(--foreground, #0f172a)",
+                            }}
+                          >
+                            {log.title}
+                          </h4>
+
+                          {log.description && (
+                            <p
+                              style={{
+                                margin: "0 0 0.6rem",
+                                fontSize: "0.875rem",
+                                color: "var(--text-muted, #475569)",
+                                lineHeight: "1.45",
+                                whiteSpace: "pre-line",
+                              }}
+                            >
+                              {log.description}
+                            </p>
+                          )}
+
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "0.75rem",
+                              fontSize: "0.78rem",
+                              color: "var(--text-muted, #64748b)",
+                              paddingTop: "0.35rem",
+                              borderTop: "1px dashed var(--border-color, #e2e8f0)",
+                            }}
+                          >
+                            <span>
+                              Recorded by: <strong>{log.recordedBy || "Hospital Staff"}</strong>
+                              {log.recordedByRole ? ` (${log.recordedByRole})` : ""}
+                            </span>
+                            {log.hospitalStayId && (
+                              <span>
+                                · Admission ID: <strong>ADM-{log.hospitalStayId}</strong>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </article>
+                    )
+                  })}
+                </div>
+              </section>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PatientProfile({
+  patient,
+  records,
+  tests,
+  reports,
+  admissions,
+  careLogs,
+  careLogsLoading,
+  role,
+  tab,
+  onTab,
+  onBack,
+  onOpenReport,
+  canEdit,
+  onEdit,
+  onAddCareLog,
+  onDeleteCareLog,
+}: {
+  patient: Patient
+  records: MedicalRecord[]
+  tests: DiagnosticTest[]
+  reports: MedicalReport[]
+  admissions: Admission[]
+  careLogs: PatientCareLogDTO[]
+  careLogsLoading: boolean
+  role: Role
+  tab: string
+  onTab: (tab: string) => void
+  onBack: () => void
+  onOpenReport: (report: MedicalReport) => void
+  canEdit: boolean
+  onEdit: () => void
+  onAddCareLog: () => void
+  onDeleteCareLog: (id: number) => void
+}) {
+  const tabs = ["Overview", "Daily Care Log", "Medical Records", "Diagnostic Tests", "Reports", "Hospital Stays"]
   return <div className="page-stack"><button className="back-link" onClick={onBack}><ChevronLeft aria-hidden="true" /> Back to patient directory</button><div className="patient-profile-heading"><span className="patient-profile-avatar">{initials(patient.name)}</span><div className="patient-profile-title"><div className="eyebrow">PATIENT PROFILE · {patient.id}</div><h1>{patient.name}</h1><p>{patient.age} years · {patient.gender}</p></div><StatusPill status={patient.status || "Active"} /><button className="button button-outline" onClick={() => onOpenReport(reports[0] ?? { id: "", patientId: patient.id, patient: patient.name, name: "Patient summary", type: "Summary", date: "12 Nov 2026", size: "—" })}><FileHeart aria-hidden="true" /> View summary</button></div>
-    <nav className="profile-tabs" aria-label="Patient profile sections">{tabs.map((item) => <button key={item} onClick={() => onTab(item)} className={tab === item ? "selected" : ""} aria-current={tab === item ? "page" : undefined}>{item}{item === "Medical Records" && <span>{records.length}</span>}</button>)}</nav>
-    {tab === "Overview" && <div className="patient-overview-grid"><section className="surface-card detail-card"><div className="card-heading"><div><h2>Patient information</h2><p>Personal details for care coordination</p></div>{canEdit && <button className="button button-outline button-small" onClick={onEdit}>Edit details</button>}</div><div className="detail-grid"><Detail label="Patient identifier" value={patient.id} /><Detail label="Full name" value={patient.name} /><Detail label="Age" value={`${patient.age} years`} /><Detail label="Gender" value={patient.gender} /><Detail label="Account status" value={patient.status || "Active"} /><Detail label="Account email" value={patient.email || "Registered in Users DB"} /></div></section><section className="surface-card history-card"><div className="card-heading"><div><h2>Recent care history</h2><p>Most recent entries in this record</p></div></div><div className="timeline-list">{records.slice(0, 3).map((record) => <TimelineItem key={record.id} date={record.date.split(" ").slice(0, 2).join(" ")} title={record.title} subtitle={`${record.doctor} · ${record.diagnosis}`} tone="teal" />)}{records.length === 0 && <EmptyState title="No clinical records" text="Documented care entries will appear here." />}</div></section></div>}
+    <nav className="profile-tabs" aria-label="Patient profile sections">{tabs.map((item) => <button key={item} onClick={() => onTab(item)} className={tab === item ? "selected" : ""} aria-current={tab === item ? "page" : undefined}>{item}{item === "Daily Care Log" && careLogs.length > 0 && <span>{careLogs.length}</span>}{item === "Medical Records" && <span>{records.length}</span>}</button>)}</nav>
+    {tab === "Overview" && <div className="patient-overview-grid"><section className="surface-card detail-card"><div className="card-heading"><div><h2>Patient information</h2><p>Personal details for care coordination</p></div>{canEdit && <button className="button button-outline button-small" onClick={onEdit}>Edit details</button>}</div><div className="detail-grid"><Detail label="Patient identifier" value={patient.id} /><Detail label="Full name" value={patient.name} /><Detail label="Age" value={`${patient.age} years`} /><Detail label="Gender" value={patient.gender} /><Detail label="Account status" value={patient.status || "Active"} /><Detail label="Account email" value={patient.email || "Registered in Users DB"} /></div></section><section className="surface-card history-card"><div className="card-heading"><div><h2>Recent Daily Care Summary</h2><p>Latest meals, medications & doctor rounds</p></div>{careLogs.length > 0 && <button className="button button-outline button-small" onClick={() => onTab("Daily Care Log")}>View diary ({careLogs.length}) <ArrowRight aria-hidden="true" /></button>}</div><div className="timeline-list">{careLogs.slice(0, 3).map((log) => <TimelineItem key={log.id} date={log.logTime ? log.logTime.slice(0, 5) : log.logDate} title={log.title} subtitle={`${log.category.replace(/_/g, " ")} · ${log.recordedBy || "Staff"}`} tone={log.category === "MEAL" ? "amber" : log.category === "MEDICATION" ? "violet" : log.category === "DOCTOR_ROUND" ? "blue" : "teal"} />)}{careLogs.length === 0 && <EmptyState title="No daily care entries yet" text="Meals, medicines administered, and doctor rounds will appear here." />}</div></section></div>}
+    {tab === "Daily Care Log" && <CareLogList careLogs={careLogs} loading={careLogsLoading} canAdd={role === "Hospital staff" || role === "Doctor" || role === "Administrator"} canDelete={role === "Hospital staff" || role === "Administrator"} onAdd={onAddCareLog} onDelete={onDeleteCareLog} />}
     {tab === "Medical Records" && <RecordList records={records} />}
     {tab === "Diagnostic Tests" && <DiagnosticList tests={tests} />}
     {tab === "Reports" && <ReportList reports={reports} onPreview={onOpenReport} />}
     {tab === "Hospital Stays" && <AdmissionList admissions={admissions} />}
-    <p className="page-disclaimer"><ShieldCheck aria-hidden="true" /> Fictional demonstration information. Clinical decisions must be made by the treating healthcare professional.</p>
+    <p className="page-disclaimer"><ShieldCheck aria-hidden="true" /> Live data synchronized with CardioTrack Hospital Service.</p>
   </div>
 }
 function Detail({ label, value, wide }: { label: string; value: string; wide?: boolean }) { return <div className={`detail-field ${wide ? "detail-wide" : ""}`}><span>{label}</span><strong>{value}</strong></div> }
@@ -814,6 +1339,7 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, uploading, 
     "create-doctor-profile": "Create Doctor Clinical Profile",
     "create-staff": isExisting ? "Promote Existing User to Staff" : "Create Staff Account",
     "create-patient-account": "Create Patient Account",
+    "care-log": "Record Daily Patient Care Log",
   }
   const descriptions: Record<Exclude<ModalType, null>, string> = {
     patient: "Add patient details directly into the PostgreSQL database.",
@@ -829,6 +1355,7 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, uploading, 
     "create-doctor-profile": "Save doctor qualifications and specialization in Doctor Service.",
     "create-staff": isExisting ? "Select an existing registered user to update their role to STAFF." : "Provision a new Staff login account with STAFF role in Auth Service.",
     "create-patient-account": "Provision a Patient login account with PATIENT role in Auth Service.",
+    "care-log": "Document meals served, medicines administered, doctor rounds, tests, and nursing observations for patient transparency.",
   }
   const choices = patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.name} · {patient.id}</option>)
   const Field = ({ label, name, required = false, children, type: inputType = "text", placeholder, defaultValue }: { label: string; name: string; required?: boolean; children?: ReactNode; type?: string; placeholder?: string; defaultValue?: string }) => <label className="form-field"><span>{label}{required && <i> *</i>}</span>{children ?? <input name={name} type={inputType} placeholder={placeholder} required={required} defaultValue={defaultValue} />}</label>
@@ -946,7 +1473,76 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, uploading, 
       {type === "discharge" && <><div className="sensitive-action-note"><ShieldCheck aria-hidden="true" /><span>Confirm that the treating team has reviewed the transition and discharge instructions before recording this status.</span></div><label className="form-field"><span>Discharge notes <i>*</i></span><textarea name="notes" rows={4} required placeholder="Document discharge coordination notes" /></label><label className="confirm-check"><input type="checkbox" required /><span>I confirm this discharge is ready to be recorded in the live database.</span></label></>}
       {type === "assign" && <><div className="form-assurance"><Stethoscope aria-hidden="true" /> {doctor}</div><Field label="Patient" name="patientId" required><span className="select-wrap"><select name="patientId" required>{choices}</select><ChevronDown aria-hidden="true" /></span></Field><p className="field-help">Assigns patient to selected physician.</p></>}
       {type === "report" && <><Field label="Patient" name="patientId" required><span className="select-wrap"><select name="patientId" required>{choices}</select><ChevronDown aria-hidden="true" /></span></Field><div className="form-grid"><SelectField label="Document type" name="type" options={["Clinical summary", "Diagnostic report", "Referral", "Discharge summary", "Other"]} /><Field label="Description" name="description" placeholder="Optional brief description" /></div><label className="upload-dropzone"><input name="file" type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" required disabled={uploading} /><span className="upload-icon"><Download aria-hidden="true" /></span><strong>Choose a file or drop it here</strong><small>PDF, JPG, or PNG · up to 10 MB</small></label><div className="form-assurance"><LockKeyhole aria-hidden="true" /> Files are uploaded securely to Cloudinary & Report Service.</div>{uploading && <div className="upload-progress"><div><span>Adding document to this session</span><strong>{uploadProgress}%</strong></div><span className="progress-track"><i style={{ width: `${uploadProgress}%` }} /></span></div>}</>}
-      <div className="dialog-actions"><button type="button" className="button button-outline" onClick={onClose} disabled={uploading}>Cancel</button><button className="button button-primary" type="submit" disabled={uploading}>{uploading ? "Adding document…" : type === "create-doctor" ? (isExisting ? "Promote to Doctor & Continue" : "Create Account & Continue") : type === "create-doctor-profile" ? "Save Doctor Profile" : type === "create-staff" ? (isExisting ? "Promote to Staff Role" : "Create Staff Account") : type === "create-patient-account" ? "Create Patient Account" : type === "edit-patient" ? "Save patient details" : type === "patient" ? "Register patient" : type === "record" ? "Save clinical note" : type === "test" ? "Schedule test" : type === "admission" ? "Open admission" : type === "discharge" ? "Confirm discharge" : type === "assign" ? "Confirm assignment" : "Add document"}<ArrowRight aria-hidden="true" /></button></div>
+      {type === "care-log" && (
+        <>
+          <Field label="Patient" name="patientId" required>
+            <span className="select-wrap">
+              <select name="patientId" required defaultValue={patientToEdit?.id}>
+                {choices}
+              </select>
+              <ChevronDown aria-hidden="true" />
+            </span>
+          </Field>
+          <div className="form-grid">
+            <SelectField
+              label="Care Category"
+              name="category"
+              options={[
+                "MEAL - Meals & Nutrition",
+                "MEDICATION - Medicine Administered",
+                "DOCTOR_ROUND - Doctor Consultation / Round",
+                "DIAGNOSTIC_TEST - Diagnostic Test Conducted",
+                "VITALS_NURSE_NOTE - Vitals & Nursing Observation",
+                "GENERAL - General Care & Hygiene",
+              ]}
+            />
+            <SelectField
+              label="Status"
+              name="status"
+              options={["Completed", "Administered", "Normal", "Observed", "Pending", "Needs Attention"]}
+            />
+            <Field
+              label="Log Date"
+              name="logDate"
+              type="date"
+              required
+              defaultValue={new Date().toISOString().split("T")[0]}
+            />
+            <Field
+              label="Log Time"
+              name="logTime"
+              type="time"
+              required
+              defaultValue={new Date().toTimeString().slice(0, 5)}
+            />
+            <Field
+              label="Title / Summary"
+              name="title"
+              required
+              placeholder="e.g. Breakfast: Diabetic Oats, Boiled Egg, Milk"
+            />
+            <Field
+              label="Recorded By"
+              name="recordedBy"
+              required
+              defaultValue={role === "Hospital staff" ? "Nurse on Duty" : role === "Doctor" ? "Attending Physician" : "Hospital Staff"}
+              placeholder="e.g. Nurse Priyanka / Dr. Bose"
+            />
+            <label className="form-field form-field-wide">
+              <span>Detailed Notes & Observations</span>
+              <textarea
+                name="description"
+                rows={3}
+                placeholder="Details: meal quantity eaten, medicine dosage & route, doctor remarks during round, vitals reading (BP/Pulse)..."
+              />
+            </label>
+          </div>
+          <div className="form-assurance">
+            <ShieldCheck aria-hidden="true" /> This entry will be immediately visible to the patient and their family party in the Patient Diary.
+          </div>
+        </>
+      )}
+      <div className="dialog-actions"><button type="button" className="button button-outline" onClick={onClose} disabled={uploading}>Cancel</button><button className="button button-primary" type="submit" disabled={uploading}>{uploading ? "Adding document…" : type === "create-doctor" ? (isExisting ? "Promote to Doctor & Continue" : "Create Account & Continue") : type === "create-doctor-profile" ? "Save Doctor Profile" : type === "create-staff" ? (isExisting ? "Promote to Staff Role" : "Create Staff Account") : type === "create-patient-account" ? "Create Patient Account" : type === "edit-patient" ? "Save patient details" : type === "patient" ? "Register patient" : type === "record" ? "Save clinical note" : type === "test" ? "Schedule test" : type === "admission" ? "Open admission" : type === "discharge" ? "Confirm discharge" : type === "assign" ? "Confirm assignment" : type === "care-log" ? "Save care entry" : "Add document"}<ArrowRight aria-hidden="true" /></button></div>
     </form>}</section></div>
 }
 
