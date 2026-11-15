@@ -40,7 +40,7 @@ import {
   Zap,
 } from "lucide-react"
 import type { Role } from "./data"
-import { authApi, toClientRole } from "@/lib/api"
+import { authApi, doctorApi, toClientRole, type DoctorDTO } from "@/lib/api"
 
 type PublicExperienceProps = {
   onSignIn: (role: Role) => void
@@ -184,44 +184,9 @@ const stackCards = [
   },
 ]
 
-const specialists = [
-  {
-    name: "Dr. Arindam Bose",
-    role: "Chief of Interventional Cardiology",
-    creds: "MBBS, MD (Medicine), DM (Cardiology), FACC",
-    exp: "16+ Years",
-    procedures: "18,000+ PCI",
-    avatar: "AB",
-  },
-  {
-    name: "Dr. Priya Nair",
-    role: "Director of Non-Invasive Cardiology",
-    creds: "MBBS, MD (Internal Medicine), FESC, DNB",
-    exp: "12+ Years",
-    procedures: "35,000+ Echo",
-    avatar: "PN",
-  },
-  {
-    name: "Dr. Farhan Ali",
-    role: "Head of Electrophysiology & Arrhythmia",
-    creds: "MBBS, MD, DM (Neurology & EP Fellowship)",
-    exp: "10+ Years",
-    procedures: "4,200+ Ablations",
-    avatar: "FA",
-  },
-  {
-    name: "Dr. Rituparna Dey",
-    role: "Chief Cardiothoracic & Transplant Surgeon",
-    creds: "MBBS, MS (General Surgery), MCh (CTVS), FIACS",
-    exp: "14+ Years",
-    procedures: "8,500+ Surgeries",
-    avatar: "RD",
-  },
-]
-
 const testimonials = [
   {
-    quote: "When I suffered a massive heart attack in Salt Lake, CardioTrack's ambulance reached me in 8 minutes. By the time I arrived, the Cath Lab was already prepped. Dr. Arindam Bose opened my blocked artery in record time. They gave me a second life.",
+    quote: "When I suffered a massive heart attack in Salt Lake, CardioTrack's ambulance reached me in 8 minutes. By the time I arrived, the Cath Lab was already prepped. The on-duty interventional cardiology team opened my blocked artery in record time. They gave me a second life.",
     author: "Subir K. Mukherjee",
     meta: "Primary Angioplasty Patient · Age 58",
     rating: 5,
@@ -242,7 +207,16 @@ const testimonials = [
 
 export function PublicExperience({ onSignIn }: PublicExperienceProps) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [liveSpecialists, setLiveSpecialists] = useState<DoctorDTO[]>([])
   const tickerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    doctorApi.getAll().then((data) => {
+      if (data && Array.isArray(data)) {
+        setLiveSpecialists(data)
+      }
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (tickerRef.current) {
@@ -559,31 +533,56 @@ export function PublicExperience({ onSignIn }: PublicExperienceProps) {
         </div>
 
         <div className="specialists-grid">
-          {specialists.map((doc, index) => (
-            <motion.div
-              className="specialist-card"
-              key={doc.name}
-              initial={{ opacity: 0, y: 25 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
-            >
-              <div className="specialist-avatar-big">{doc.avatar}</div>
-              <h3>{doc.name}</h3>
-              <div className="specialist-role">{doc.role}</div>
-              <div className="specialist-creds">{doc.creds}</div>
-              <div className="specialist-meta">
-                <div>
-                  <strong>{doc.exp}</strong>
-                  <span>Experience</span>
-                </div>
-                <div>
-                  <strong>{doc.procedures}</strong>
-                  <span>Case Volume</span>
-                </div>
-              </div>
-            </motion.div>
-          ))}
+          {liveSpecialists.length > 0 ? (
+            liveSpecialists.map((doc, index) => {
+              const initials = doc.fullName
+                .split(/\s+/)
+                .filter(Boolean)
+                .slice(0, 2)
+                .map((w) => w.replace(".", "")[0])
+                .join("")
+                .toUpperCase()
+              return (
+                <motion.div
+                  className="specialist-card"
+                  key={doc.id || doc.fullName}
+                  initial={{ opacity: 0, y: 25 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.5, delay: index * 0.1 }}
+                >
+                  <div className="specialist-avatar-big">
+                    {doc.profilePicUrl ? (
+                      <img src={doc.profilePicUrl} alt={doc.fullName} className="specialist-photo-img" />
+                    ) : (
+                      initials
+                    )}
+                  </div>
+                  <h3>{doc.fullName}</h3>
+                  <div className="specialist-role">{doc.specialization}</div>
+                  <div className="specialist-creds">{doc.qualification}</div>
+                  <div className="specialist-meta">
+                    <div>
+                      <strong>{doc.experienceYears}+ Years</strong>
+                      <span>Experience</span>
+                    </div>
+                    <div>
+                      <strong>{doc.registrationNumber}</strong>
+                      <span>Registration</span>
+                    </div>
+                  </div>
+                </motion.div>
+              )
+            })
+          ) : (
+            <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "48px 24px", background: "rgba(255,255,255,0.03)", borderRadius: "16px", border: "1px dashed rgba(255,255,255,0.15)", color: "#94a3b8" }}>
+              <Stethoscope style={{ width: "36px", height: "36px", margin: "0 auto 12px", color: "#5eead4", opacity: 0.8 }} />
+              <h4 style={{ color: "#e2e8f0", fontSize: "16px", marginBottom: "6px" }}>Clinical Faculty Directory</h4>
+              <p style={{ maxWidth: "480px", margin: "0 auto", fontSize: "13px", lineHeight: "1.6" }}>
+                Doctor profiles will appear here dynamically as verified clinicians are added to the CardioTrack database.
+              </p>
+            </div>
+          )}
         </div>
       </section>
 

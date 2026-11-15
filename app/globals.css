@@ -419,6 +419,7 @@ svg { flex-shrink: 0; }
 .timeline-copy small { color: #87959a; font-size: 8px; }
 .doctor-compact { display: flex; align-items: center; gap: 10px; margin-top: 18px; padding: 12px; border: 1px solid #edf2f0; border-radius: 9px; }
 .doctor-avatar { display: grid; width: 43px; height: 43px; flex: 0 0 auto; place-items: center; border-radius: 12px; color: #315c59; font-family: var(--font-display); font-size: 12px; font-weight: 750; }
+.doctor-avatar-photo { width: 46px; height: 46px; flex: 0 0 auto; object-fit: cover; border-radius: 12px; border: 1.5px solid #dcece7; box-shadow: 0 2px 8px rgba(13,118,109,.12); }
 .avatar-teal { background: #e2f0ec; color: #31766c; }
 .avatar-blue { background: #e9f0f7; color: #5c7d9e; }
 .avatar-violet { background: #f0ecf6; color: #80719d; }
@@ -1157,6 +1158,13 @@ tbody tr:hover { background: #fafcfb; }
   background: #e8f4f1;
   color: #0d766d;
   border: 3px solid #d4ede6;
+  overflow: hidden;
+}
+.specialist-photo-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
 }
 .specialist-card h3 {
   font-family: var(--font-display);

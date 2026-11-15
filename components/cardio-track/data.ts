@@ -60,12 +60,7 @@ export type Admission = {
 
 export const demoPatients: Patient[] = []
 
-export const demoDoctors = [
-  { name: "Dr. Arindam Bose", specialty: "Cardiology", qualifications: "MBBS, MD (Medicine), DM (Cardiology)", experience: "16 years", registration: "WBMC 68421", patients: 0, initials: "AB", tone: "teal" },
-  { name: "Dr. Priya Nair", specialty: "Internal Medicine", qualifications: "MBBS, MD (Internal Medicine)", experience: "12 years", registration: "WBMC 72913", patients: 0, initials: "PN", tone: "blue" },
-  { name: "Dr. Farhan Ali", specialty: "Neurology", qualifications: "MBBS, MD, DM (Neurology)", experience: "10 years", registration: "WBMC 80126", patients: 0, initials: "FA", tone: "violet" },
-  { name: "Dr. Rituparna Dey", specialty: "Orthopedics", qualifications: "MBBS, MS (Orthopedics), DNB", experience: "14 years", registration: "WBMC 71388", patients: 0, initials: "RD", tone: "amber" },
-]
+export const demoDoctors: any[] = []
 
 export const demoRecords: MedicalRecord[] = []
 

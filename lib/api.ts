@@ -49,6 +49,7 @@ export interface DoctorDTO {
   specialization: string;
   experienceYears: number;
   registrationNumber: string;
+  profilePicUrl?: string;
 }
 
 export interface MedicalRecordDTO {
@@ -455,6 +456,7 @@ export const doctorApi = {
     specialization: string;
     experienceYears: number;
     registrationNumber: string;
+    profilePicUrl?: string;
   }): Promise<DoctorDTO> {
     return request<DoctorDTO>("/api/doctors/me/profile", {
       method: "POST",
@@ -468,10 +470,29 @@ export const doctorApi = {
     specialization: string;
     experienceYears: number;
     registrationNumber: string;
+    profilePicUrl?: string;
   }): Promise<DoctorDTO> {
     return request<DoctorDTO>(`/api/doctors?userId=${userId}`, {
       method: "POST",
       body: JSON.stringify(data),
+    });
+  },
+
+  async uploadPhoto(doctorId: number | string, file: File): Promise<DoctorDTO> {
+    const formData = new FormData();
+    formData.append("file", file);
+    return request<DoctorDTO>(`/api/doctors/${doctorId}/photo`, {
+      method: "POST",
+      body: formData,
+    });
+  },
+
+  async uploadPhotoOnly(file: File): Promise<{ url: string }> {
+    const formData = new FormData();
+    formData.append("file", file);
+    return request<{ url: string }>("/api/doctors/photo/upload", {
+      method: "POST",
+      body: formData,
     });
   },
 
