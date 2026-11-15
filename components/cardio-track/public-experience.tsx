@@ -566,10 +566,10 @@ export function PublicExperience({ onSignIn }: PublicExperienceProps) {
                       <strong>{doc.experienceYears}+ Years</strong>
                       <span>Experience</span>
                     </div>
-                    <div>
+                    {/* <div>
                       <strong>{doc.registrationNumber}</strong>
                       <span>Registration</span>
-                    </div>
+                    </div> */}
                   </div>
                 </motion.div>
               )
