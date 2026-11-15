@@ -15,6 +15,8 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Eye,
   EyeOff,
@@ -209,6 +211,39 @@ export function PublicExperience({ onSignIn }: PublicExperienceProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [liveSpecialists, setLiveSpecialists] = useState<DoctorDTO[]>([])
   const tickerRef = useRef<HTMLDivElement>(null)
+  const galleryRef = useRef<HTMLDivElement>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(true)
+
+  const checkGalleryScroll = () => {
+    const el = galleryRef.current
+    if (!el) return
+    const { scrollLeft, scrollWidth, clientWidth } = el
+    setCanScrollLeft(scrollLeft > 10)
+    setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 10)
+  }
+
+  const scrollGallery = (direction: "left" | "right") => {
+    const el = galleryRef.current
+    if (!el) return
+    const step = el.clientWidth > 768 ? 300 * 2 : 270
+    el.scrollBy({
+      left: direction === "left" ? -step : step,
+      behavior: "smooth",
+    })
+  }
+
+  useEffect(() => {
+    checkGalleryScroll()
+    const el = galleryRef.current
+    if (!el) return
+    el.addEventListener("scroll", checkGalleryScroll, { passive: true })
+    window.addEventListener("resize", checkGalleryScroll)
+    return () => {
+      el.removeEventListener("scroll", checkGalleryScroll)
+      window.removeEventListener("resize", checkGalleryScroll)
+    }
+  }, [liveSpecialists])
 
   useEffect(() => {
     doctorApi.getAll().then((data) => {
@@ -522,67 +557,97 @@ export function PublicExperience({ onSignIn }: PublicExperienceProps) {
         </div>
       </section>
 
-      {/* Renowned Medical Faculty */}
+      {/* Renowned Medical Faculty - Horizontal Scroll Gallery */}
       <section className="specialists-section" id="specialists">
-        <div className="section-heading">
-          <div>
+        <div className="specialists-header-wrap">
+          <div className="specialists-header-main">
             <div className="eyebrow">RENOWNED FACULTY</div>
             <h2>Headed by India&apos;s Foremost<br /><em>Cardiovascular Clinicians</em></h2>
           </div>
-          <p>Our senior clinicians bring decades of surgical mastery, international fellowship training, and empathetic care.</p>
+          <div className="specialists-header-side">
+            <p>Our senior clinicians bring decades of surgical mastery, international fellowship training, and empathetic care.</p>
+            {liveSpecialists.length > 0 && (
+              <div className="specialists-nav-row">
+                <span className="specialists-badge">
+                  <UserCheck size={13} style={{ color: "#0d766d" }} />
+                  {liveSpecialists.length} Board-Certified Specialists
+                </span>
+                <button
+                  type="button"
+                  className="specialists-nav-btn"
+                  onClick={() => scrollGallery("left")}
+                  disabled={!canScrollLeft}
+                  aria-label="Scroll left to previous specialists"
+                  title="Previous clinicians"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  type="button"
+                  className="specialists-nav-btn"
+                  onClick={() => scrollGallery("right")}
+                  disabled={!canScrollRight}
+                  aria-label="Scroll right to next specialists"
+                  title="Next clinicians"
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="specialists-grid">
-          {liveSpecialists.length > 0 ? (
-            liveSpecialists.map((doc, index) => {
-              const initials = doc.fullName
-                .split(/\s+/)
-                .filter(Boolean)
-                .slice(0, 2)
-                .map((w) => w.replace(".", "")[0])
-                .join("")
-                .toUpperCase()
-              return (
-                <motion.div
-                  className="specialist-card"
-                  key={doc.id || doc.fullName}
-                  initial={{ opacity: 0, y: 25 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.5, delay: index * 0.1 }}
-                >
-                  <div className="specialist-avatar-big">
-                    {doc.profilePicUrl ? (
-                      <img src={doc.profilePicUrl} alt={doc.fullName} className="specialist-photo-img" />
-                    ) : (
-                      initials
-                    )}
-                  </div>
-                  <h3>{doc.fullName}</h3>
-                  <div className="specialist-role">{doc.specialization}</div>
-                  <div className="specialist-creds">{doc.qualification}</div>
-                  <div className="specialist-meta">
-                    <div>
-                      <strong>{doc.experienceYears}+ Years</strong>
-                      <span>Experience</span>
+        <div className="specialists-gallery-outer">
+          <div className="specialists-gallery" ref={galleryRef}>
+            {liveSpecialists.length > 0 ? (
+              liveSpecialists.map((doc, index) => {
+                const initials = doc.fullName
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((w) => w.replace(".", "")[0])
+                  .join("")
+                  .toUpperCase()
+                return (
+                  <motion.div
+                    className="specialist-card"
+                    key={doc.id || doc.fullName}
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ duration: 0.4, delay: Math.min(index * 0.08, 0.4) }}
+                  >
+                    <div className="specialist-card-body">
+                      <div className="specialist-avatar-big">
+                        {doc.profilePicUrl ? (
+                          <img src={doc.profilePicUrl} alt={doc.fullName} className="specialist-photo-img" />
+                        ) : (
+                          initials
+                        )}
+                      </div>
+                      <h3>{doc.fullName}</h3>
+                      <div className="specialist-role">{doc.specialization}</div>
+                      <div className="specialist-creds">{doc.qualification}</div>
                     </div>
-                    {/* <div>
-                      <strong>{doc.registrationNumber}</strong>
-                      <span>Registration</span>
-                    </div> */}
-                  </div>
-                </motion.div>
-              )
-            })
-          ) : (
-            <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "48px 24px", background: "rgba(255,255,255,0.03)", borderRadius: "16px", border: "1px dashed rgba(255,255,255,0.15)", color: "#94a3b8" }}>
-              <Stethoscope style={{ width: "36px", height: "36px", margin: "0 auto 12px", color: "#5eead4", opacity: 0.8 }} />
-              <h4 style={{ color: "#e2e8f0", fontSize: "16px", marginBottom: "6px" }}>Clinical Faculty Directory</h4>
-              <p style={{ maxWidth: "480px", margin: "0 auto", fontSize: "13px", lineHeight: "1.6" }}>
-                Doctor profiles will appear here dynamically as verified clinicians are added to the CardioTrack database.
-              </p>
-            </div>
-          )}
+                    <div className="specialist-meta">
+                      <div>
+                        <strong>{doc.experienceYears}+ Years</strong>
+                        <span>Experience</span>
+                      </div>
+                    </div>
+                  </motion.div>
+                )
+              })
+            ) : (
+              <div style={{ flex: "1 1 100%", textAlign: "center", padding: "48px 24px", background: "rgba(255,255,255,0.03)", borderRadius: "16px", border: "1px dashed rgba(255,255,255,0.15)", color: "#94a3b8" }}>
+                <Stethoscope style={{ width: "36px", height: "36px", margin: "0 auto 12px", color: "#5eead4", opacity: 0.8 }} />
+                <h4 style={{ color: "#e2e8f0", fontSize: "16px", marginBottom: "6px" }}>Clinical Faculty Directory</h4>
+                <p style={{ maxWidth: "480px", margin: "0 auto", fontSize: "13px", lineHeight: "1.6" }}>
+                  Doctor profiles will appear here dynamically as verified clinicians are added to the CardioTrack database.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </section>
 

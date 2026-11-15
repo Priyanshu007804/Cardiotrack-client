@@ -611,6 +611,7 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
           updateProfile(res.url)
         }).catch((err) => {
           console.warn("Photo upload failed:", err)
+          notify(`Cloudinary photo upload failed: ${err.message || "Network error"}. Updating other profile details...`)
           updateProfile(manualUrl || undefined)
         })
       } else {
@@ -1648,6 +1649,23 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, liveDoctors
   const [isExisting, setIsExisting] = useState(false)
   const [userSearch, setUserSearch] = useState("")
   const [selectedUserId, setSelectedUserId] = useState<number | "">("")
+  const [selectedPhotoFile, setSelectedPhotoFile] = useState<File | null>(null)
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl)
+    }
+  }, [photoPreviewUrl])
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (f) {
+      setSelectedPhotoFile(f)
+      if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl)
+      setPhotoPreviewUrl(URL.createObjectURL(f))
+    }
+  }
 
   const doctorChoices = useMemo(() => {
     return liveDoctors.length > 0
@@ -1784,11 +1802,23 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, liveDoctors
             <Field label="Registration Number" name="registrationNumber" required placeholder="e.g. WBMC-98765" />
             <Field label="Profile Picture URL (Optional)" name="profilePicUrl" placeholder="https://res.cloudinary.com/... (or choose file below)" />
           </div>
-          <label className="upload-dropzone">
-            <input name="profilePic" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" disabled={uploading} />
-            <span className="upload-icon"><Camera aria-hidden="true" /></span>
-            <strong>Doctor Profile Photo (Cloudinary)</strong>
-            <small>JPG, PNG, or WebP up to 10 MB · Optional</small>
+          <label className="upload-dropzone" style={photoPreviewUrl ? { borderColor: "#0284c7", background: "#f0f9ff" } : undefined}>
+            <input name="profilePic" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" disabled={uploading} onChange={handlePhotoChange} />
+            {photoPreviewUrl ? (
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", width: "100%", justifyContent: "center" }}>
+                <img src={photoPreviewUrl} alt="Preview" style={{ width: "48px", height: "48px", borderRadius: "10px", objectFit: "cover", border: "2px solid #0284c7" }} />
+                <div style={{ textAlign: "left" }}>
+                  <strong style={{ display: "block", color: "#0369a1", fontSize: "13px" }}>Selected: {selectedPhotoFile?.name}</strong>
+                  <small style={{ color: "#0284c7" }}>{(selectedPhotoFile?.size ? (selectedPhotoFile.size / 1024).toFixed(0) + " KB" : "")} · Click to choose different photo</small>
+                </div>
+              </div>
+            ) : (
+              <>
+                <span className="upload-icon"><Camera aria-hidden="true" /></span>
+                <strong>Doctor Profile Photo (Cloudinary)</strong>
+                <small>JPG, PNG, or WebP up to 10 MB · Optional</small>
+              </>
+            )}
           </label>
           <div className="form-assurance">
             <Stethoscope aria-hidden="true" /> Photo will be uploaded to Cloudinary and profile saved to Doctor Service database.
@@ -1822,11 +1852,23 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, liveDoctors
             />
             <Field label="Profile Picture URL (Optional)" name="profilePicUrl" placeholder="https://res.cloudinary.com/..." defaultValue={myDoctorProfile?.profilePicUrl} />
           </div>
-          <label className="upload-dropzone">
-            <input name="profilePic" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" disabled={uploading} />
-            <span className="upload-icon"><Camera aria-hidden="true" /></span>
-            <strong>{myDoctorProfile?.profilePicUrl ? "Upload New Profile Photo (Cloudinary)" : "Upload Doctor Profile Photo (Cloudinary)"}</strong>
-            <small>JPG, PNG, or WebP up to 10 MB · Optional (updates Cloudinary profile pic)</small>
+          <label className="upload-dropzone" style={photoPreviewUrl ? { borderColor: "#0284c7", background: "#f0f9ff" } : undefined}>
+            <input name="profilePic" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" disabled={uploading} onChange={handlePhotoChange} />
+            {photoPreviewUrl ? (
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", width: "100%", justifyContent: "center" }}>
+                <img src={photoPreviewUrl} alt="Preview" style={{ width: "48px", height: "48px", borderRadius: "10px", objectFit: "cover", border: "2px solid #0284c7" }} />
+                <div style={{ textAlign: "left" }}>
+                  <strong style={{ display: "block", color: "#0369a1", fontSize: "13px" }}>Selected: {selectedPhotoFile?.name}</strong>
+                  <small style={{ color: "#0284c7" }}>{(selectedPhotoFile?.size ? (selectedPhotoFile.size / 1024).toFixed(0) + " KB" : "")} · Click to choose different photo</small>
+                </div>
+              </div>
+            ) : (
+              <>
+                <span className="upload-icon"><Camera aria-hidden="true" /></span>
+                <strong>{myDoctorProfile?.profilePicUrl ? "Upload New Profile Photo (Cloudinary)" : "Upload Doctor Profile Photo (Cloudinary)"}</strong>
+                <small>JPG, PNG, or WebP up to 10 MB · Optional (updates Cloudinary profile pic)</small>
+              </>
+            )}
           </label>
           {myDoctorProfile?.profilePicUrl && (
             <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 14px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>

@@ -1122,32 +1122,157 @@ tbody tr:hover { background: #fafcfb; }
 }
 
 /* Faculty & Specialists */
+/* Faculty & Specialists - Horizontal Scroll Gallery */
 .specialists-section {
   max-width: 1280px;
   margin: 0 auto;
   padding: 88px 44px;
+  position: relative;
 }
-.specialists-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 18px;
-  margin-top: 36px;
+.specialists-header-wrap {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 32px;
+  margin-bottom: 24px;
+}
+.specialists-header-main {
+  flex: 1;
+}
+.specialists-header-main h2 {
+  margin: 13px 0 0;
+  color: #193247;
+  font-family: var(--font-display);
+  font-size: 37px;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: -1.8px;
+}
+.specialists-header-main h2 em {
+  color: #0d766d;
+  font-style: normal;
+}
+.specialists-header-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 14px;
+}
+.specialists-header-side p {
+  max-width: 380px;
+  margin: 0;
+  color: #687b85;
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: right;
+}
+.specialists-nav-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.specialists-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #0d766d;
+  background: #e8f4f1;
+  border: 1px solid #cce8e0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  letter-spacing: 0.2px;
+  box-shadow: 0 1px 3px rgba(13, 118, 109, 0.06);
+}
+.specialists-nav-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1.5px solid #d4ede6;
+  background: #ffffff;
+  color: #173248;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 8px rgba(16, 40, 60, 0.05);
+}
+.specialists-nav-btn:hover:not(:disabled) {
+  background: #0d766d;
+  color: #ffffff;
+  border-color: #0d766d;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(13, 118, 109, 0.25);
+}
+.specialists-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+.specialists-gallery-outer {
+  position: relative;
+  width: 100%;
+}
+.specialists-gallery {
+  display: flex;
+  gap: 20px;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scroll-snap-type: x mandatory;
+  padding: 16px 4px 28px 4px;
+  margin: 0 -4px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+.specialists-gallery::-webkit-scrollbar {
+  height: 6px;
+}
+.specialists-gallery::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 999px;
+}
+.specialists-gallery::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+.specialists-gallery::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 .specialist-card {
   background: #fff;
   border: 1px solid #e5ecea;
-  border-radius: 14px;
-  padding: 24px 20px;
+  border-radius: 16px;
+  padding: 26px 20px;
   text-align: center;
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  flex: 0 0 280px;
+  min-width: 280px;
+  max-width: 280px;
+  scroll-snap-align: start;
+  scroll-snap-stop: normal;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
 }
 .specialist-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 14px 30px rgba(16, 40, 60, 0.07);
+  transform: translateY(-5px);
+  box-shadow: 0 16px 36px rgba(16, 40, 60, 0.08);
+  border-color: #b7ded5;
+}
+.specialist-card-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
 }
 .specialist-avatar-big {
-  width: 68px;
-  height: 68px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
   margin: 0 auto 16px;
   display: grid;
@@ -1159,6 +1284,7 @@ tbody tr:hover { background: #fafcfb; }
   color: #0d766d;
   border: 3px solid #d4ede6;
   overflow: hidden;
+  box-shadow: 0 4px 12px rgba(13, 118, 109, 0.08);
 }
 .specialist-photo-img {
   width: 100%;
@@ -1168,34 +1294,40 @@ tbody tr:hover { background: #fafcfb; }
 }
 .specialist-card h3 {
   font-family: var(--font-display);
-  font-size: 16px;
+  font-size: 16.5px;
   font-weight: 700;
   color: #173248;
-  margin: 0 0 4px;
+  margin: 0 0 5px;
+  line-height: 1.3;
 }
 .specialist-role {
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
   color: #0d766d;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 .specialist-creds {
-  font-size: 10px;
+  font-size: 10.5px;
   color: #798b95;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
+  line-height: 1.4;
 }
 .specialist-meta {
   display: flex;
-  justify-content: space-around;
+  justify-content: center;
+  align-items: center;
   padding-top: 14px;
   border-top: 1px solid #eef3f1;
   font-size: 10px;
   color: #647783;
+  width: 100%;
+  margin-top: auto;
 }
 .specialist-meta strong {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: #173248;
+  font-weight: 700;
 }
 
 /* Patient Recovery Testimonials */
@@ -1550,6 +1682,39 @@ tbody tr:hover { background: #fafcfb; }
   }
   .hotline-inner {
     padding: 8px 20px;
+  }
+  .specialists-header-wrap {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .specialists-header-side {
+    align-items: flex-start;
+    width: 100%;
+  }
+  .specialists-header-side p {
+    text-align: left;
+    max-width: 100%;
+  }
+  .specialists-nav-row {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 640px) {
+  .specialists-section {
+    padding: 56px 18px;
+  }
+  .specialists-header-main h2 {
+    font-size: 28px;
+    letter-spacing: -1.2px;
+  }
+  .specialist-card {
+    flex: 0 0 250px;
+    min-width: 250px;
+    max-width: 250px;
+    padding: 22px 16px;
   }
 }
 
