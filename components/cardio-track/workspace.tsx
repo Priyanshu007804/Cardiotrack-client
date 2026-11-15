@@ -392,12 +392,10 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
         notes: `Ward: ${value("ward")}, Bed: ${value("bed")}`,
       }).then((stay) => {
         const admission: Admission = { id: `ADM-${stay.id}`, patientId: patient.id, patient: patient.name, ward: value("ward"), bed: value("bed"), admitted: "Today", status: "Admitted" }
-        setAdmissions((previous) => [admission, ...previous])
-        notify("Hospital stay opened in Hospital Service!")
+        setAdmissions((previous) => [admission, ...previous.filter((a) => a.id !== admission.id)])
+        notify("Hospital stay opened and saved to database!")
       }).catch((err) => {
-        const admission: Admission = { id: `ADM-${742 + admissions.length}`, patientId: patient.id, patient: patient.name, ward: value("ward"), bed: value("bed"), admitted: "12 Nov 2026", status: "Admitted" }
-        setAdmissions((previous) => [admission, ...previous])
-        notify(`Hospital stay opened (${err.message})`)
+        notify(`Failed to open hospital stay: ${err.message}`)
       })
       setModal(null)
       return
