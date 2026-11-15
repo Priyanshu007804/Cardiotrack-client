@@ -71,8 +71,8 @@ export const demoReports: MedicalReport[] = []
 export const demoAdmissions: Admission[] = []
 
 export const roleSections: Record<Role, Section[]> = {
-  Administrator: ["overview", "patients", "doctors", "admissions", "records", "diagnostics", "reports", "staff"],
-  Doctor: ["overview", "patients", "records", "diagnostics", "reports"],
-  "Hospital staff": ["overview", "patients", "admissions", "reports"],
-  Patient: ["overview", "patients", "doctors", "records", "diagnostics", "reports", "admissions"],
+  Administrator: ["overview", "patients", "doctors", "admissions", "records", "diagnostics", "reports", "staff", "settings"],
+  Doctor: ["overview", "patients", "records", "diagnostics", "reports", "settings"],
+  "Hospital staff": ["overview", "patients", "admissions", "reports", "settings"],
+  Patient: ["overview", "patients", "doctors", "records", "diagnostics", "reports", "admissions", "settings"],
 }

@@ -14,7 +14,7 @@ const activityChartConfig = { visits: { label: "Patient visits", color: "var(--c
 const activityChartData = [{ day: "Mon", visits: 0 }, { day: "Tue", visits: 0 }, { day: "Wed", visits: 0 }, { day: "Thu", visits: 0 }, { day: "Fri", visits: 0 }, { day: "Sat", visits: 0 }, { day: "Sun", visits: 0 }]
 const roleWelcome: Record<Role, string> = { Administrator: "Administrator", Doctor: "Doctor", "Hospital staff": "Hospital Staff", Patient: "Patient" }
 
-type ModalType = "patient" | "edit-patient" | "record" | "test" | "admission" | "report" | "discharge" | "assign" | "delete" | "create-doctor" | "create-staff" | "create-patient-account" | "create-doctor-profile" | "care-log" | null
+type ModalType = "patient" | "edit-patient" | "record" | "test" | "admission" | "report" | "discharge" | "assign" | "delete" | "create-doctor" | "create-staff" | "create-patient-account" | "create-doctor-profile" | "edit-doctor-profile" | "care-log" | null
 
 type WorkspaceProps = { role: Role; userName: string; onSignOut: () => void; onSwitchRole: (role: Role) => void }
 
@@ -39,6 +39,7 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
   const [uploading, setUploading] = useState(false)
   const [previewReport, setPreviewReport] = useState<MedicalReport | null>(null)
   const [liveDoctors, setLiveDoctors] = useState<DoctorDTO[]>([])
+  const [myDoctorProfile, setMyDoctorProfile] = useState<DoctorDTO | null>(null)
   const [newAccountUserId, setNewAccountUserId] = useState<number | null>(null)
   const [systemUsers, setSystemUsers] = useState<UserSummaryDTO[]>([])
   const [menuOpen, setMenuOpen] = useState<"profile" | "notifications" | null>(null)
@@ -189,6 +190,17 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
             }
           } catch {
             // Doctor service may be warming up
+          }
+
+          if (role === "Doctor") {
+            try {
+              const myProfile = await doctorApi.getMyProfile()
+              if (isMounted && myProfile) {
+                setMyDoctorProfile(myProfile)
+              }
+            } catch (err) {
+              console.warn("Doctor profile not found (may need setup):", err)
+            }
           }
 
           if (role === "Administrator") {
@@ -547,6 +559,65 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
       }
       return
     }
+    if (modal === "edit-doctor-profile") {
+      const file = formData.get("profilePic") as File | null
+      const manualUrl = value("profilePicUrl")
+      const fullName = value("fullName")
+      const qualification = value("qualification")
+      const specialization = value("specialization")
+      const experienceYears = Number(value("experienceYears")) || 0
+      const registrationNumber = value("registrationNumber")
+
+      const updateProfile = async (photoUrl?: string) => {
+        try {
+          const finalPhoto = photoUrl || manualUrl || myDoctorProfile?.profilePicUrl
+          if (myDoctorProfile) {
+            const updated = await doctorApi.updateMyProfile({
+              fullName,
+              qualification,
+              specialization,
+              experienceYears,
+              profilePicUrl: finalPhoto,
+            })
+            setMyDoctorProfile(updated)
+            setLiveDoctors((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+            notify("Your doctor profile was updated successfully!")
+          } else {
+            const created = await doctorApi.createMyProfile({
+              fullName,
+              qualification,
+              specialization,
+              experienceYears,
+              registrationNumber: registrationNumber || `REG-${Date.now().toString().slice(-6)}`,
+              profilePicUrl: finalPhoto,
+            })
+            setMyDoctorProfile(created)
+            setLiveDoctors((prev) => [...prev, created])
+            notify("Doctor profile created successfully!")
+          }
+          setModal(null)
+        } catch (err: any) {
+          notify(`Failed to save doctor profile: ${err.message}`)
+        } finally {
+          setUploading(false)
+        }
+      }
+
+      if (file && file.size > 0) {
+        setUploading(true)
+        setUploadProgress(40)
+        doctorApi.uploadPhotoOnly(file).then((res) => {
+          setUploadProgress(100)
+          updateProfile(res.url)
+        }).catch((err) => {
+          console.warn("Photo upload failed:", err)
+          updateProfile(manualUrl || undefined)
+        })
+      } else {
+        updateProfile()
+      }
+      return
+    }
     if (modal === "create-staff") {
       const isExisting = formData.get("isExisting") === "on"
       if (isExisting) {
@@ -668,7 +739,7 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
 
         {menuOpen && <button aria-label="Close menu" className="popover-dismiss" onClick={() => setMenuOpen(null)} />}
         <div className="workspace-content" id="workspace">
-          {section === "overview" && <Overview role={role} name={currentName} patients={patients} records={records} tests={tests} admissions={admissions} careLogs={careLogs} onNavigate={navigate} onOpenPatient={openPatient} />}
+          {section === "overview" && <Overview role={role} name={currentName} myDoctorProfile={myDoctorProfile} patients={patients} records={records} tests={tests} admissions={admissions} careLogs={careLogs} onNavigate={navigate} onOpenPatient={openPatient} />}
           {section === "patients" && (selectedPatient ? <PatientProfile patient={selectedPatient} records={records.filter((item) => item.patientId === selectedPatient.id)} tests={tests.filter((item) => item.patientId === selectedPatient.id)} reports={reports.filter((item) => item.patientId === selectedPatient.id)} admissions={admissions.filter((item) => item.patientId === selectedPatient.id)} careLogs={careLogs} careLogsLoading={careLogsLoading} role={role} tab={patientTab} onTab={setPatientTab} onBack={() => setSelectedPatient(null)} onOpenReport={setPreviewReport} canEdit={role === "Administrator" || role === "Hospital staff"} onEdit={() => openPatientEdit(selectedPatient)} onAddCareLog={() => startModal("care-log")} onDeleteCareLog={handleDeleteCareLog} /> : <PatientDirectory patients={visiblePatients} role={role} query={query} filter={filter} onFilter={setFilter} onAdd={() => startModal("patient")} onOpen={openPatient} />)}
           {section === "doctors" && <DoctorsPage role={role} patients={patients} liveDoctors={liveDoctors} onAssign={(name) => { setModalDoctor(name); startModal("assign") }} onOpenPatient={openPatient} onAddDoctor={() => startModal("create-doctor")} />}
           {section === "records" && <RecordsPage records={records.filter((item) => `${item.patient} ${item.title} ${item.diagnosis}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onAdd={() => startModal("record")} onOpenPatient={openPatient} />}
@@ -676,17 +747,17 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
           {section === "reports" && <ReportsPage reports={reports.filter((item) => `${item.patient} ${item.name} ${item.type}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onUpload={() => startModal("report")} onOpenPatient={openPatient} onPreview={setPreviewReport} onDelete={openDelete} />}
           {section === "admissions" && <AdmissionsPage admissions={admissions.filter((item) => `${item.patient} ${item.ward} ${item.status}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onAdd={() => startModal("admission")} onDischarge={openDischarge} onOpenPatient={openPatient} />}
           {section === "staff" && <StaffPage users={systemUsers} query={query} onCreateDoctor={() => startModal("create-doctor")} onCreateStaff={() => startModal("create-staff")} onCreatePatient={() => startModal("create-patient-account")} />}
-          {section === "settings" && <SettingsPage role={role} userName={currentName} onSignOut={onSignOut} />}
+          {section === "settings" && <SettingsPage role={role} userName={currentName} myDoctorProfile={myDoctorProfile} onEditDoctorProfile={() => startModal("edit-doctor-profile")} onSignOut={onSignOut} />}
         </div>
       </div>
       {toast && <div className="toast-message" role="status"><span><Check aria-hidden="true" /></span>{toast}<button aria-label="Dismiss notification" onClick={() => setToast("")}><X aria-hidden="true" /></button></div>}
-      {modal && <ActionDialog type={modal} role={role} patients={patients} liveDoctors={liveDoctors} patientToEdit={modal === "edit-patient" ? selectedPatient ?? undefined : undefined} doctor={modalDoctor} uploading={uploading} uploadProgress={uploadProgress} systemUsers={systemUsers} onClose={() => !uploading && setModal(null)} onSubmit={handleModalSubmit} onDelete={() => { setReports((previous) => previous.filter((report) => report.id !== targetId)); setModal(null); notify("Document removed from this demonstration session.") }} />}
+      {modal && <ActionDialog type={modal} role={role} patients={patients} liveDoctors={liveDoctors} myDoctorProfile={myDoctorProfile} patientToEdit={modal === "edit-patient" ? selectedPatient ?? undefined : undefined} doctor={modalDoctor} uploading={uploading} uploadProgress={uploadProgress} systemUsers={systemUsers} onClose={() => !uploading && setModal(null)} onSubmit={handleModalSubmit} onDelete={() => { setReports((previous) => previous.filter((report) => report.id !== targetId)); setModal(null); notify("Document removed from this demonstration session.") }} />}
       {previewReport && <ReportDialog report={previewReport} onClose={() => setPreviewReport(null)} />}
     </main>
   )
 }
 
-function Overview({ role, name, patients, records, tests, admissions, careLogs = [], onNavigate, onOpenPatient }: { role: Role; name: string; patients: Patient[]; records: MedicalRecord[]; tests: DiagnosticTest[]; admissions: Admission[]; careLogs?: PatientCareLogDTO[]; onNavigate: (section: Section) => void; onOpenPatient: (patient: Patient) => void }) {
+function Overview({ role, name, myDoctorProfile, patients, records, tests, admissions, careLogs = [], onNavigate, onOpenPatient }: { role: Role; name: string; myDoctorProfile?: DoctorDTO | null; patients: Patient[]; records: MedicalRecord[]; tests: DiagnosticTest[]; admissions: Admission[]; careLogs?: PatientCareLogDTO[]; onNavigate: (section: Section) => void; onOpenPatient: (patient: Patient) => void }) {
   const patientView = role === "Patient"
   const activeAdmissions = admissions.filter((item) => item.status === "Admitted")
   const shownPatients = patients
@@ -699,6 +770,39 @@ function Overview({ role, name, patients, records, tests, admissions, careLogs =
   const activeOwnStay = ownStays.some((item) => item.status === "Admitted")
   return <div className="page-stack">
     <div className="page-heading"><div><div className="eyebrow">{patientView ? "YOUR CARE, AT A GLANCE" : "HOSPITAL OPERATIONS"}</div><h1>{`Welcome, ${name.split(" ")[0]}`}</h1><p>{patientView ? "Your care information & daily diary, synchronized from live database." : "A clear view of patient activity at CardioTrack Medical Centre."}</p></div><div className="date-chip"><CalendarDays aria-hidden="true" /> Live Connected</div></div>
+    {role === "Doctor" && (
+      myDoctorProfile ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", padding: "12px 18px", background: "#fff", border: "1px solid #dcece7", borderRadius: "10px", boxShadow: "0 2px 8px rgba(13,118,109,0.04)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            {myDoctorProfile.profilePicUrl ? (
+              <img src={myDoctorProfile.profilePicUrl} alt={myDoctorProfile.fullName} className="doctor-avatar-photo" style={{ width: "42px", height: "42px" }} />
+            ) : (
+              <span className="doctor-avatar avatar-teal" style={{ width: "42px", height: "42px" }}>{initials(myDoctorProfile.fullName)}</span>
+            )}
+            <div>
+              <strong style={{ color: "#1e293b", fontSize: "14px" }}>Dr. {myDoctorProfile.fullName}</strong>
+              <p style={{ margin: "2px 0 0", color: "#64748b", fontSize: "12px" }}>{myDoctorProfile.specialization} · Reg: {myDoctorProfile.registrationNumber} · {myDoctorProfile.experienceYears} Years Exp</p>
+            </div>
+          </div>
+          <button className="button button-outline button-small" onClick={() => onNavigate("settings")}>
+            Edit Clinical Profile <ArrowRight aria-hidden="true" />
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "14px", padding: "14px 18px", background: "rgba(13, 118, 109, 0.08)", border: "1px solid rgba(13, 118, 109, 0.25)", borderRadius: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <Stethoscope style={{ color: "#0d766d", width: "22px", height: "22px", flexShrink: 0 }} />
+            <div>
+              <strong style={{ color: "#0f2f2c", fontSize: "14px" }}>Set Up Your Doctor Profile</strong>
+              <p style={{ margin: "2px 0 0", color: "#4b6764", fontSize: "12px" }}>Add your specialization, qualifications, and profile picture to appear on the public directory.</p>
+            </div>
+          </div>
+          <button className="button button-primary button-small" onClick={() => onNavigate("settings")}>
+            Set Up Profile <ArrowRight aria-hidden="true" />
+          </button>
+        </div>
+      )
+    )}
     <div className="demo-banner"><span><ShieldCheck aria-hidden="true" /></span><div><strong>Live Database Connected</strong><p>All care logs, records, tests, admissions, and reports are synchronized directly with Neon PostgreSQL.</p></div><span className="demo-pill" style={{ background: "var(--teal)", color: "#fff" }}>LIVE</span></div>
     <div className="stats-grid">
       {patientView ? <>
@@ -1401,7 +1505,136 @@ function StaffPage({
   )
 }
 
-function SettingsPage({ role, userName, onSignOut }: { role: Role; userName: string; onSignOut: () => void }) { return <div className="page-stack"><PageHeading eyebrow="ACCOUNT & ACCESS" title="Settings" description="Your account details and workspace access." /><div className="settings-grid"><section className="surface-card settings-card"><div className="settings-card-heading"><span className="settings-icon"><UserRound aria-hidden="true" /></span><div><h2>Profile</h2><p>Account identity for this demonstration</p></div></div><Detail label="Name" value={userName} /><Detail label="Workspace role" value={role} /><Detail label="Hospital" value="Shantideep Medical Centre · Kolkata" /><button className="button button-outline" onClick={() => alert("Contact hospital support to update account details.")}>Request profile update</button></section><section className="surface-card settings-card"><div className="settings-card-heading"><span className="settings-icon"><ShieldCheck aria-hidden="true" /></span><div><h2>Privacy & access</h2><p>Understand the demonstration permissions</p></div></div><div className="settings-privacy-row"><LockKeyhole aria-hidden="true" /><span><strong>Role-aware workspace</strong><small>Views are tailored to your selected role.</small></span></div><div className="settings-privacy-row"><FileHeart aria-hidden="true" /><span><strong>Fictional information</strong><small>No sample information represents a real patient.</small></span></div><div className="settings-privacy-row"><Activity aria-hidden="true" /><span><strong>Session-only changes</strong><small>Edits reset when you sign out of this demonstration.</small></span></div></section><section className="surface-card settings-card signout-card"><div><h2>End your session</h2><p>Return to the public CardioTrack welcome page.</p></div><button className="button button-outline" onClick={onSignOut}><LogOut aria-hidden="true" /> Sign out</button></section></div></div> }
+function SettingsPage({
+  role,
+  userName,
+  myDoctorProfile,
+  onEditDoctorProfile,
+  onSignOut,
+}: {
+  role: Role
+  userName: string
+  myDoctorProfile?: DoctorDTO | null
+  onEditDoctorProfile?: () => void
+  onSignOut: () => void
+}) {
+  return (
+    <div className="page-stack">
+      <PageHeading
+        eyebrow="ACCOUNT & ACCESS"
+        title="Settings & Profile"
+        description="Your credentials, clinical profile, and workspace access."
+      />
+      <div className="settings-grid">
+        {role === "Doctor" && (
+          <section className="surface-card settings-card" style={{ gridColumn: "1 / -1" }}>
+            <div className="settings-card-heading">
+              {myDoctorProfile?.profilePicUrl ? (
+                <img
+                  src={myDoctorProfile.profilePicUrl}
+                  alt={myDoctorProfile.fullName}
+                  className="doctor-avatar-photo"
+                  style={{ width: "54px", height: "54px" }}
+                />
+              ) : (
+                <span className="settings-icon">
+                  <Stethoscope aria-hidden="true" />
+                </span>
+              )}
+              <div style={{ flex: 1 }}>
+                <h2>{myDoctorProfile ? `Dr. ${myDoctorProfile.fullName}` : "Doctor Clinical Profile"}</h2>
+                <p>
+                  {myDoctorProfile
+                    ? `${myDoctorProfile.specialization} · Registration: ${myDoctorProfile.registrationNumber}`
+                    : "Clinical credentials & public directory listing"}
+                </p>
+              </div>
+              <button className="button button-primary" onClick={onEditDoctorProfile}>
+                {myDoctorProfile ? "Edit Profile & Photo" : "Set Up Doctor Profile"}
+              </button>
+            </div>
+            {myDoctorProfile ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", marginTop: "14px" }}>
+                <Detail label="Full Name" value={`Dr. ${myDoctorProfile.fullName}`} />
+                <Detail label="Specialization" value={myDoctorProfile.specialization} />
+                <Detail label="Qualifications" value={myDoctorProfile.qualification} />
+                <Detail label="Experience" value={`${myDoctorProfile.experienceYears} Years`} />
+                <Detail label="Registration Number" value={myDoctorProfile.registrationNumber} />
+                <Detail label="Public Directory" value="Verified & Active on Landing Page" />
+              </div>
+            ) : (
+              <div style={{ padding: "14px 16px", background: "rgba(13, 148, 136, 0.06)", borderRadius: "8px", border: "1px dashed rgba(13, 148, 136, 0.3)", marginTop: "12px" }}>
+                <p style={{ margin: 0, color: "#0d766d", fontSize: "13px" }}>
+                  You have not set up your clinical profile yet. Click &quot;Set Up Doctor Profile&quot; above to add your qualifications, specialty, and profile photo.
+                </p>
+              </div>
+            )}
+          </section>
+        )}
+        <section className="surface-card settings-card">
+          <div className="settings-card-heading">
+            <span className="settings-icon">
+              <UserRound aria-hidden="true" />
+            </span>
+            <div>
+              <h2>Account identity</h2>
+              <p>Authentication credentials</p>
+            </div>
+          </div>
+          <Detail label="Account Email" value={userName} />
+          <Detail label="Workspace role" value={role} />
+          <Detail label="Hospital" value="CardioTrack Medical Centre · Kolkata" />
+          {role === "Doctor" && (
+            <button className="button button-outline" onClick={onEditDoctorProfile}>
+              Edit Doctor Profile
+            </button>
+          )}
+        </section>
+        <section className="surface-card settings-card">
+          <div className="settings-card-heading">
+            <span className="settings-icon">
+              <ShieldCheck aria-hidden="true" />
+            </span>
+            <div>
+              <h2>Security & Storage</h2>
+              <p>Platform status & sync</p>
+            </div>
+          </div>
+          <div className="settings-privacy-row">
+            <LockKeyhole aria-hidden="true" />
+            <span>
+              <strong>Neon PostgreSQL DB</strong>
+              <small>Live synchronized across Spring Boot microservices.</small>
+            </span>
+          </div>
+          <div className="settings-privacy-row">
+            <FileHeart aria-hidden="true" />
+            <span>
+              <strong>Cloudinary Storage</strong>
+              <small>Profile pictures and medical reports stored securely.</small>
+            </span>
+          </div>
+          <div className="settings-privacy-row">
+            <Activity aria-hidden="true" />
+            <span>
+              <strong>Role-based Authorization</strong>
+              <small>Granular Spring Security JWT protections enabled.</small>
+            </span>
+          </div>
+        </section>
+        <section className="surface-card settings-card signout-card">
+          <div>
+            <h2>End your session</h2>
+            <p>Return to the public CardioTrack welcome page.</p>
+          </div>
+          <button className="button button-outline" onClick={onSignOut}>
+            <LogOut aria-hidden="true" /> Sign out
+          </button>
+        </section>
+      </div>
+    </div>
+  )
+}
 
 function RecordList({ records }: { records: MedicalRecord[] }) { return <div className="surface-card table-card full-table"><div className="table-scroll"><table><thead><tr><th>Record</th><th>Diagnosis</th><th>Doctor</th><th>Clinical date</th><th>Patient</th><th><span className="sr-only">Details</span></th></tr></thead><tbody>{records.map((record) => <tr key={record.id}><td><span className="table-test"><span className="test-icon"><ClipboardList aria-hidden="true" /></span><span><strong>{record.title}</strong><small>{record.id}</small></span></span></td><td>{record.diagnosis}</td><td>{record.doctor}</td><td>{record.date}</td><td>{record.patient}</td><td><button className="icon-button row-action" aria-label={`View ${record.title}`} onClick={() => alert(record.notes)}><ArrowUpRight aria-hidden="true" /></button></td></tr>)}</tbody></table></div>{records.length === 0 && <EmptyState title="No medical records" text="Your care team has not shared any records in this category." />}</div> }
 function DiagnosticList({ tests }: { tests: DiagnosticTest[] }) { return <div className="surface-card table-card full-table"><div className="table-scroll"><table><thead><tr><th>Test</th><th>Date</th><th>Requesting clinician</th><th>Status</th><th>Department</th></tr></thead><tbody>{tests.map((test) => <tr key={test.id}><td>{test.test}</td><td>{test.date}</td><td>{test.doctor}</td><td><StatusPill status={test.status} /></td><td>{test.department}</td></tr>)}</tbody></table></div>{tests.length === 0 && <EmptyState title="No diagnostic tests" text="Scheduled tests will be listed here." />}</div> }
@@ -1411,7 +1644,7 @@ function AdmissionList({ admissions }: { admissions: Admission[] }) { return <di
 function StatusPill({ status }: { status: string }) { const tone = /admitted|active|ready|documented/i.test(status) ? "green" : /follow|scheduled/i.test(status) ? "amber" : /progress/i.test(status) ? "blue" : "neutral"; return <span className={`status-pill status-${tone}`}><i />{status}</span> }
 function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state"><span><Search aria-hidden="true" /></span><strong>{title}</strong><p>{text}</p></div> }
 
-function ActionDialog({ type, role, patients, patientToEdit, doctor, liveDoctors = [], uploading, uploadProgress, systemUsers = [], onClose, onSubmit, onDelete }: { type: Exclude<ModalType, null>; role: Role; patients: Patient[]; patientToEdit?: Patient; doctor: string; liveDoctors?: DoctorDTO[]; uploading: boolean; uploadProgress: number; systemUsers?: UserSummaryDTO[]; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onDelete: () => void }) {
+function ActionDialog({ type, role, patients, patientToEdit, doctor, liveDoctors = [], myDoctorProfile, uploading, uploadProgress, systemUsers = [], onClose, onSubmit, onDelete }: { type: Exclude<ModalType, null>; role: Role; patients: Patient[]; patientToEdit?: Patient; doctor: string; liveDoctors?: DoctorDTO[]; myDoctorProfile?: DoctorDTO | null; uploading: boolean; uploadProgress: number; systemUsers?: UserSummaryDTO[]; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onDelete: () => void }) {
   const [isExisting, setIsExisting] = useState(false)
   const [userSearch, setUserSearch] = useState("")
   const [selectedUserId, setSelectedUserId] = useState<number | "">("")
@@ -1441,6 +1674,7 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, liveDoctors
     delete: "Remove document",
     "create-doctor": isExisting ? "Promote Existing User to Doctor" : "Create Doctor Account",
     "create-doctor-profile": "Create Doctor Clinical Profile",
+    "edit-doctor-profile": myDoctorProfile ? "Edit Doctor Profile" : "Set Up Doctor Profile",
     "create-staff": isExisting ? "Promote Existing User to Staff" : "Create Staff Account",
     "create-patient-account": "Create Patient Account",
     "care-log": "Record Daily Patient Care Log",
@@ -1457,6 +1691,7 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, liveDoctors
     delete: "This action removes the selected document.",
     "create-doctor": isExisting ? "Select an existing registered user to update their role to DOCTOR." : "Provision a new Doctor login account with DOCTOR role in Auth Service.",
     "create-doctor-profile": "Save doctor qualifications and specialization in Doctor Service.",
+    "edit-doctor-profile": "Update your credentials, clinical specialty, and profile photo.",
     "create-staff": isExisting ? "Select an existing registered user to update their role to STAFF." : "Provision a new Staff login account with STAFF role in Auth Service.",
     "create-patient-account": "Provision a Patient login account with PATIENT role in Auth Service.",
     "care-log": "Document meals served, medicines administered, doctor rounds, tests, and nursing observations for patient transparency.",
@@ -1566,6 +1801,53 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, liveDoctors
           )}
         </>
       )}
+      {type === "edit-doctor-profile" && (
+        <>
+          <div className="form-grid">
+            <Field label="Full Name" name="fullName" required placeholder="e.g. Dr. Debashish Roy" defaultValue={myDoctorProfile?.fullName} />
+            <Field label="Qualification" name="qualification" required placeholder="e.g. MBBS, MD, DM (Cardiology)" defaultValue={myDoctorProfile?.qualification} />
+            <SelectField
+              label="Specialization"
+              name="specialization"
+              options={["Cardiology", "Internal Medicine", "Neurology", "Orthopedics", "General Surgery", "Cardiothoracic Surgery", "Pediatric Cardiology"]}
+              defaultValue={myDoctorProfile?.specialization || "Cardiology"}
+            />
+            <Field label="Experience (Years)" name="experienceYears" type="number" required placeholder="e.g. 15" defaultValue={myDoctorProfile ? String(myDoctorProfile.experienceYears) : "5"} />
+            <Field
+              label="Registration Number"
+              name="registrationNumber"
+              required={!myDoctorProfile}
+              placeholder="e.g. WBMC-98765"
+              defaultValue={myDoctorProfile?.registrationNumber}
+            />
+            <Field label="Profile Picture URL (Optional)" name="profilePicUrl" placeholder="https://res.cloudinary.com/..." defaultValue={myDoctorProfile?.profilePicUrl} />
+          </div>
+          <label className="upload-dropzone">
+            <input name="profilePic" type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" disabled={uploading} />
+            <span className="upload-icon"><Camera aria-hidden="true" /></span>
+            <strong>{myDoctorProfile?.profilePicUrl ? "Upload New Profile Photo (Cloudinary)" : "Upload Doctor Profile Photo (Cloudinary)"}</strong>
+            <small>JPG, PNG, or WebP up to 10 MB · Optional (updates Cloudinary profile pic)</small>
+          </label>
+          {myDoctorProfile?.profilePicUrl && (
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 14px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+              <img src={myDoctorProfile.profilePicUrl} alt="Current profile" style={{ width: "40px", height: "40px", borderRadius: "10px", objectFit: "cover" }} />
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <strong style={{ fontSize: "12.5px", color: "#1e293b" }}>Current Photo Active</strong>
+                <span style={{ fontSize: "11px", color: "#64748b" }}>Choose a file above to replace it in Cloudinary</span>
+              </div>
+            </div>
+          )}
+          <div className="form-assurance">
+            <Stethoscope aria-hidden="true" /> Changes are synchronized with Doctor Service database and will update your public card immediately.
+          </div>
+          {uploading && (
+            <div className="upload-progress">
+              <div><span>Uploading photo to Cloudinary</span><strong>{uploadProgress}%</strong></div>
+              <span className="progress-track"><i style={{ width: `${uploadProgress}%` }} /></span>
+            </div>
+          )}
+        </>
+      )}
       {(type === "patient" || type === "edit-patient") && (
         <>
           <div className="form-grid">
@@ -1659,7 +1941,7 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, liveDoctors
           </div>
         </>
       )}
-      <div className="dialog-actions"><button type="button" className="button button-outline" onClick={onClose} disabled={uploading}>Cancel</button><button className="button button-primary" type="submit" disabled={uploading}>{uploading ? "Adding document…" : type === "create-doctor" ? (isExisting ? "Promote to Doctor & Continue" : "Create Account & Continue") : type === "create-doctor-profile" ? "Save Doctor Profile" : type === "create-staff" ? (isExisting ? "Promote to Staff Role" : "Create Staff Account") : type === "create-patient-account" ? "Create Patient Account" : type === "edit-patient" ? "Save patient details" : type === "patient" ? "Register patient" : type === "record" ? "Save clinical note" : type === "test" ? "Schedule test" : type === "admission" ? "Open admission" : type === "discharge" ? "Confirm discharge" : type === "assign" ? "Confirm assignment" : type === "care-log" ? "Save care entry" : "Add document"}<ArrowRight aria-hidden="true" /></button></div>
+      <div className="dialog-actions"><button type="button" className="button button-outline" onClick={onClose} disabled={uploading}>Cancel</button><button className="button button-primary" type="submit" disabled={uploading}>{uploading ? "Saving profile…" : type === "create-doctor" ? (isExisting ? "Promote to Doctor & Continue" : "Create Account & Continue") : type === "create-doctor-profile" || type === "edit-doctor-profile" ? "Save Doctor Profile" : type === "create-staff" ? (isExisting ? "Promote to Staff Role" : "Create Staff Account") : type === "create-patient-account" ? "Create Patient Account" : type === "edit-patient" ? "Save patient details" : type === "patient" ? "Register patient" : type === "record" ? "Save clinical note" : type === "test" ? "Schedule test" : type === "admission" ? "Open admission" : type === "discharge" ? "Confirm discharge" : type === "assign" ? "Confirm assignment" : type === "care-log" ? "Save care entry" : "Add document"}<ArrowRight aria-hidden="true" /></button></div>
     </form>}</section></div>
 }
 

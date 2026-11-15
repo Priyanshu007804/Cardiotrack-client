@@ -450,6 +450,28 @@ export const doctorApi = {
     return request<DoctorDTO>("/api/doctors/me/profile");
   },
 
+  async updateMyProfile(data: {
+    fullName: string;
+    qualification: string;
+    specialization: string;
+    experienceYears: number;
+    profilePicUrl?: string;
+  }): Promise<DoctorDTO> {
+    return request<DoctorDTO>("/api/doctors/me/profile", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async uploadMyPhoto(file: File): Promise<DoctorDTO> {
+    const formData = new FormData();
+    formData.append("file", file);
+    return request<DoctorDTO>("/api/doctors/me/photo", {
+      method: "POST",
+      body: formData,
+    });
+  },
+
   async createMyProfile(data: {
     fullName: string;
     qualification: string;
