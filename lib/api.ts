@@ -704,6 +704,31 @@ export const reportApi = {
       method: "DELETE",
     });
   },
+
+  async downloadReport(
+    patientId: number | string,
+    reportId: number | string,
+    fileName?: string
+  ): Promise<void> {
+    const token = getAuthToken();
+    const base = API_BASE_URL.replace(/\/$/, "");
+    const url = `${base}/api/patients/${patientId}/medical-reports/${reportId}/download`;
+    const res = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to download report (${res.status})`);
+    }
+    const blob = await res.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = fileName || `Medical-Report-${reportId}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(blobUrl);
+  },
 };
 
 // -------------------------------------------------------------

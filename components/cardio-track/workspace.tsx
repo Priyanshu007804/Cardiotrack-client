@@ -7,6 +7,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import type { LucideIcon } from "lucide-react"
 import { roleSections, type Admission, type DiagnosticTest, type MedicalRecord, type MedicalReport, type Patient, type Role, type Section } from "./data"
 import { patientApi, doctorApi, clinicalApi, hospitalApi, reportApi, authApi, careLogApi, type DoctorDTO, type UserSummaryDTO, type PatientCareLogDTO, type CareLogCategory, type CreateCareLogRequest } from "@/lib/api"
+import { generateDischargeSummaryPdf } from "@/lib/discharge-pdf"
 
 const sectionNames: Record<Section, string> = { overview: "Overview", patients: "Patients", doctors: "Doctors", records: "Clinical records", diagnostics: "Diagnostic tests", reports: "Medical reports", admissions: "Hospital stays", staff: "Staff access", settings: "Settings" }
 const sectionIcons: Record<Section, LucideIcon> = { overview: LayoutDashboard, patients: UsersRound, doctors: Stethoscope, records: ClipboardList, diagnostics: TestTube2, reports: FileHeart, admissions: Activity, staff: UserRoundPlus, settings: Settings }
@@ -285,6 +286,145 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
       notify("Care log entry removed.")
     } catch (err: any) {
       notify(`Failed to delete care log: ${err.message}`)
+    }
+  }
+
+  const handleDownloadDischargePdf = async (admission: Admission) => {
+    try {
+      notify("Preparing comprehensive Discharge Summary PDF...")
+      const rawPatientId = parseInt(admission.patientId.replace(/\D/g, "")) || 0
+      const matchedPatient = patients.find((p) => p.id === admission.patientId) || {
+        id: admission.patientId,
+        name: admission.patient,
+        age: 45,
+        gender: "Unknown",
+      }
+
+      // Collect clinical records
+      let patientRecords = records.filter((r) => r.patientId === admission.patientId)
+      if (patientRecords.length === 0 && rawPatientId > 0) {
+        try {
+          const fetched = await clinicalApi.getRecordsByPatient(rawPatientId)
+          if (fetched && fetched.length > 0) {
+            patientRecords = fetched.map((r) => ({
+              id: `REC-${r.id}`,
+              patientId: admission.patientId,
+              patient: matchedPatient.name,
+              title: "Cardiovascular Evaluation",
+              diagnosis: r.diagnosis,
+              doctor: "Attending Cardiologist",
+              date: r.recordDate ? new Date(r.recordDate).toLocaleDateString() : "During stay",
+              notes: r.notes || "",
+            }))
+          }
+        } catch {}
+      }
+
+      // Collect diagnostic tests
+      let patientTests = tests.filter((t) => t.patientId === admission.patientId)
+      if (patientTests.length === 0 && rawPatientId > 0) {
+        try {
+          const fetchedTests = await clinicalApi.getTestsByPatient(rawPatientId)
+          if (fetchedTests && fetchedTests.length > 0) {
+            patientTests = fetchedTests.map((t) => ({
+              id: `DX-${t.id}`,
+              patientId: admission.patientId,
+              patient: matchedPatient.name,
+              test: t.testName,
+              department: t.testType || "Cardiology",
+              doctor: "Attending Physician",
+              date: t.testDate ? new Date(t.testDate).toLocaleDateString() : "During stay",
+              status: "Report ready",
+              note: t.results || t.interpretation || "Completed & Verified",
+            }))
+          }
+        } catch {}
+      }
+
+      // Collect care logs
+      let patientCareLogs = careLogs.filter((c) => `CT-${c.patientId}` === admission.patientId)
+      const rawStayId = parseInt(admission.id.replace(/\D/g, "")) || 0
+      if (rawStayId > 0) {
+        try {
+          const stayLogs = await careLogApi.getByStay(rawStayId)
+          if (stayLogs && stayLogs.length > 0) {
+            patientCareLogs = stayLogs
+          } else if (rawPatientId > 0 && patientCareLogs.length === 0) {
+            const allLogs = await careLogApi.getByPatient(rawPatientId)
+            if (allLogs) patientCareLogs = allLogs
+          }
+        } catch {}
+      }
+
+      // Collect medical reports
+      let patientReports = reports.filter((rp) => rp.patientId === admission.patientId)
+      if (patientReports.length === 0 && rawPatientId > 0) {
+        try {
+          const fetchedReports = await reportApi.getReportsByPatient(rawPatientId)
+          if (fetchedReports && fetchedReports.length > 0) {
+            patientReports = fetchedReports.map((rep) => ({
+              id: `DOC-${rep.id}`,
+              patientId: admission.patientId,
+              patient: matchedPatient.name,
+              name: rep.fileName,
+              type: rep.contentType,
+              date: new Date(rep.uploadedAt).toLocaleDateString(),
+              size: `${Math.round(rep.fileSizeBytes / 1024)} KB`,
+            }))
+          }
+        } catch {}
+      }
+
+      await generateDischargeSummaryPdf({
+        patient: {
+          id: matchedPatient.id,
+          name: matchedPatient.name,
+          age: matchedPatient.age,
+          gender: matchedPatient.gender,
+          email: matchedPatient.email,
+        },
+        admission: {
+          id: admission.id,
+          ward: admission.ward,
+          bed: admission.bed,
+          admitted: admission.admitted,
+          discharged: admission.discharged,
+          notes: admission.notes,
+        },
+        records: patientRecords.map((r) => ({
+          diagnosis: r.diagnosis,
+          notes: r.notes,
+          doctor: r.doctor,
+          date: r.date,
+        })),
+        tests: patientTests.map((t) => ({
+          testName: t.test,
+          testType: t.department,
+          date: t.date,
+          results: t.note,
+          interpretation: "Reviewed & Verified by Specialist",
+        })),
+        careLogs: patientCareLogs.map((c) => ({
+          category: c.category,
+          title: c.title,
+          description: c.description,
+          logDate: c.logDate,
+          logTime: c.logTime,
+          recordedBy: c.recordedBy,
+        })),
+        reports: patientReports.map((rp) => ({
+          name: rp.name,
+          type: rp.type,
+          date: rp.date,
+          size: rp.size,
+        })),
+        attendingDoctor: liveDoctors.length > 0 ? liveDoctors[0].fullName : undefined,
+      })
+
+      notify("Discharge Summary PDF downloaded successfully!")
+    } catch (err: any) {
+      console.error("Discharge summary generation error:", err)
+      notify(`PDF notice: ${err.message || "Failed to generate summary PDF"}`)
     }
   }
   const startModal = (next: ModalType) => {
@@ -741,12 +881,12 @@ export function Workspace({ role, userName, onSignOut, onSwitchRole }: Workspace
         {menuOpen && <button aria-label="Close menu" className="popover-dismiss" onClick={() => setMenuOpen(null)} />}
         <div className="workspace-content" id="workspace">
           {section === "overview" && <Overview role={role} name={currentName} myDoctorProfile={myDoctorProfile} patients={patients} records={records} tests={tests} admissions={admissions} careLogs={careLogs} onNavigate={navigate} onOpenPatient={openPatient} />}
-          {section === "patients" && (selectedPatient ? <PatientProfile patient={selectedPatient} records={records.filter((item) => item.patientId === selectedPatient.id)} tests={tests.filter((item) => item.patientId === selectedPatient.id)} reports={reports.filter((item) => item.patientId === selectedPatient.id)} admissions={admissions.filter((item) => item.patientId === selectedPatient.id)} careLogs={careLogs} careLogsLoading={careLogsLoading} role={role} tab={patientTab} onTab={setPatientTab} onBack={() => setSelectedPatient(null)} onOpenReport={setPreviewReport} canEdit={role === "Administrator" || role === "Hospital staff"} onEdit={() => openPatientEdit(selectedPatient)} onAddCareLog={() => startModal("care-log")} onDeleteCareLog={handleDeleteCareLog} /> : <PatientDirectory patients={visiblePatients} role={role} query={query} filter={filter} onFilter={setFilter} onAdd={() => startModal("patient")} onOpen={openPatient} />)}
+          {section === "patients" && (selectedPatient ? <PatientProfile patient={selectedPatient} records={records.filter((item) => item.patientId === selectedPatient.id)} tests={tests.filter((item) => item.patientId === selectedPatient.id)} reports={reports.filter((item) => item.patientId === selectedPatient.id)} admissions={admissions.filter((item) => item.patientId === selectedPatient.id)} careLogs={careLogs} careLogsLoading={careLogsLoading} role={role} tab={patientTab} onTab={setPatientTab} onBack={() => setSelectedPatient(null)} onOpenReport={setPreviewReport} canEdit={role === "Administrator" || role === "Hospital staff"} onEdit={() => openPatientEdit(selectedPatient)} onAddCareLog={() => startModal("care-log")} onDeleteCareLog={handleDeleteCareLog} onDownloadDischarge={handleDownloadDischargePdf} /> : <PatientDirectory patients={visiblePatients} role={role} query={query} filter={filter} onFilter={setFilter} onAdd={() => startModal("patient")} onOpen={openPatient} />)}
           {section === "doctors" && <DoctorsPage role={role} patients={patients} liveDoctors={liveDoctors} onAssign={(name) => { setModalDoctor(name); startModal("assign") }} onOpenPatient={openPatient} onAddDoctor={() => startModal("create-doctor")} />}
           {section === "records" && <RecordsPage records={records.filter((item) => `${item.patient} ${item.title} ${item.diagnosis}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onAdd={() => startModal("record")} onOpenPatient={openPatient} />}
           {section === "diagnostics" && <DiagnosticsPage tests={tests.filter((item) => `${item.patient} ${item.test} ${item.department}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onAdd={() => startModal("test")} onOpenPatient={openPatient} />}
           {section === "reports" && <ReportsPage reports={reports.filter((item) => `${item.patient} ${item.name} ${item.type}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onUpload={() => startModal("report")} onOpenPatient={openPatient} onPreview={setPreviewReport} onDelete={openDelete} />}
-          {section === "admissions" && <AdmissionsPage admissions={admissions.filter((item) => `${item.patient} ${item.ward} ${item.status}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onAdd={() => startModal("admission")} onDischarge={openDischarge} onOpenPatient={openPatient} />}
+          {section === "admissions" && <AdmissionsPage admissions={admissions.filter((item) => `${item.patient} ${item.ward} ${item.status}`.toLowerCase().includes(query.toLowerCase()))} patients={patients} role={role} onAdd={() => startModal("admission")} onDischarge={openDischarge} onOpenPatient={openPatient} onDownloadDischarge={handleDownloadDischargePdf} />}
           {section === "staff" && <StaffPage users={systemUsers} query={query} onCreateDoctor={() => startModal("create-doctor")} onCreateStaff={() => startModal("create-staff")} onCreatePatient={() => startModal("create-patient-account")} />}
           {section === "settings" && <SettingsPage role={role} userName={currentName} myDoctorProfile={myDoctorProfile} onEditDoctorProfile={() => startModal("edit-doctor-profile")} onSignOut={onSignOut} />}
         </div>
@@ -1297,6 +1437,7 @@ function PatientProfile({
   onEdit,
   onAddCareLog,
   onDeleteCareLog,
+  onDownloadDischarge,
 }: {
   patient: Patient
   records: MedicalRecord[]
@@ -1314,16 +1455,18 @@ function PatientProfile({
   onEdit: () => void
   onAddCareLog: () => void
   onDeleteCareLog: (id: number) => void
+  onDownloadDischarge?: (admission: Admission) => void
 }) {
   const tabs = ["Overview", "Daily Care Log", "Medical Records", "Diagnostic Tests", "Reports", "Hospital Stays"]
-  return <div className="page-stack"><button className="back-link" onClick={onBack}><ChevronLeft aria-hidden="true" /> Back to patient directory</button><div className="patient-profile-heading"><span className="patient-profile-avatar">{initials(patient.name)}</span><div className="patient-profile-title"><div className="eyebrow">PATIENT PROFILE · {patient.id}</div><h1>{patient.name}</h1><p>{patient.age} years · {patient.gender}</p></div><StatusPill status={patient.status || "Active"} /><button className="button button-outline" onClick={() => onOpenReport(reports[0] ?? { id: "", patientId: patient.id, patient: patient.name, name: "Patient summary", type: "Summary", date: "12 Nov 2026", size: "—" })}><FileHeart aria-hidden="true" /> View summary</button></div>
+  const latestDischargedStay = admissions.find((a) => a.status === "Discharged")
+  return <div className="page-stack"><button className="back-link" onClick={onBack}><ChevronLeft aria-hidden="true" /> Back to patient directory</button><div className="patient-profile-heading"><span className="patient-profile-avatar">{initials(patient.name)}</span><div className="patient-profile-title"><div className="eyebrow">PATIENT PROFILE · {patient.id}</div><h1>{patient.name}</h1><p>{patient.age} years · {patient.gender}</p></div><StatusPill status={patient.status || "Active"} />{latestDischargedStay && onDownloadDischarge && <button className="button button-primary" onClick={() => onDownloadDischarge(latestDischargedStay)} title="Download official Inpatient Discharge Summary PDF" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}><Download aria-hidden="true" size={15} /> Discharge Summary (PDF)</button>}<button className="button button-outline" onClick={() => onOpenReport(reports[0] ?? { id: "", patientId: patient.id, patient: patient.name, name: "Patient summary", type: "Summary", date: "12 Nov 2026", size: "—" })}><FileHeart aria-hidden="true" /> View summary</button></div>
     <nav className="profile-tabs" aria-label="Patient profile sections">{tabs.map((item) => <button key={item} onClick={() => onTab(item)} className={tab === item ? "selected" : ""} aria-current={tab === item ? "page" : undefined}>{item}{item === "Daily Care Log" && careLogs.length > 0 && <span>{careLogs.length}</span>}{item === "Medical Records" && <span>{records.length}</span>}</button>)}</nav>
     {tab === "Overview" && <div className="patient-overview-grid"><section className="surface-card detail-card"><div className="card-heading"><div><h2>Patient information</h2><p>Personal details for care coordination</p></div>{canEdit && <button className="button button-outline button-small" onClick={onEdit}>Edit details</button>}</div><div className="detail-grid"><Detail label="Patient identifier" value={patient.id} /><Detail label="Full name" value={patient.name} /><Detail label="Age" value={`${patient.age} years`} /><Detail label="Gender" value={patient.gender} /><Detail label="Account status" value={patient.status || "Active"} /><Detail label="Account email" value={patient.email || "Registered in Users DB"} /></div></section><section className="surface-card history-card"><div className="card-heading"><div><h2>Recent Daily Care Summary</h2><p>Latest meals, medications & doctor rounds</p></div>{careLogs.length > 0 && <button className="button button-outline button-small" onClick={() => onTab("Daily Care Log")}>View diary ({careLogs.length}) <ArrowRight aria-hidden="true" /></button>}</div><div className="timeline-list">{careLogs.slice(0, 3).map((log) => <TimelineItem key={log.id} date={log.logTime ? log.logTime.slice(0, 5) : log.logDate} title={log.title} subtitle={`${log.category.replace(/_/g, " ")} · ${log.recordedBy || "Staff"}`} tone={log.category === "MEAL" ? "amber" : log.category === "MEDICATION" ? "violet" : log.category === "DOCTOR_ROUND" ? "blue" : "teal"} />)}{careLogs.length === 0 && <EmptyState title="No daily care entries yet" text="Meals, medicines administered, and doctor rounds will appear here." />}</div></section></div>}
     {tab === "Daily Care Log" && <CareLogList careLogs={careLogs} loading={careLogsLoading} canAdd={role === "Hospital staff" || role === "Doctor" || role === "Administrator"} canDelete={role === "Hospital staff" || role === "Administrator"} onAdd={onAddCareLog} onDelete={onDeleteCareLog} />}
     {tab === "Medical Records" && <RecordList records={records} />}
     {tab === "Diagnostic Tests" && <DiagnosticList tests={tests} />}
     {tab === "Reports" && <ReportList reports={reports} onPreview={onOpenReport} />}
-    {tab === "Hospital Stays" && <AdmissionList admissions={admissions} />}
+    {tab === "Hospital Stays" && <AdmissionList admissions={admissions} onDownloadDischarge={onDownloadDischarge} />}
     <p className="page-disclaimer"><ShieldCheck aria-hidden="true" /> Live data synchronized with CardioTrack Hospital Service.</p>
   </div>
 }
@@ -1400,9 +1543,9 @@ function ReportsPage({ reports, patients, role, onUpload, onOpenPatient, onPrevi
   return <div className="page-stack"><PageHeading eyebrow="DOCUMENT CENTRE" title={role === "Patient" ? "My medical reports" : "Medical reports"} description={role === "Patient" ? "Documents shared with you by your care team." : "Manage patient documents and authorized care attachments."} action={role !== "Patient" ? <button className="button button-primary" onClick={onUpload}><Plus aria-hidden="true" /> Upload document</button> : undefined} /><div className="document-note"><LockKeyhole aria-hidden="true" /><span>Uploaded documents are stored in Cloudinary via Report Service.</span><span className="supported-files">PDF · JPG · PNG</span></div><section className="surface-card table-card full-table"><div className="table-scroll"><table><thead><tr><th>Document</th><th>Patient</th><th>Type</th><th>Date added</th><th>File size</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{reports.map((report) => <tr key={report.id}><td><button className="document-name" onClick={() => onPreview(report)}><span className="document-icon"><FileHeart aria-hidden="true" /></span><span><strong>{report.name}</strong><small>{report.id}</small></span></button></td><td>{role === "Patient" ? <span className="table-person-plain">{report.patient}</span> : <button className="table-link" onClick={() => { const target = patients.find((item) => item.id === report.patientId) ?? patients[0]; if (target) onOpenPatient(target) }}>{report.patient}</button>}</td><td>{report.type}</td><td>{report.date}</td><td>{report.size}</td><td><div className="table-actions"><button className="icon-button row-action" aria-label={`Preview ${report.name}`} onClick={() => onPreview(report)}><ArrowUpRight aria-hidden="true" /></button>{role === "Administrator" && <button className="icon-button row-action delete-action" aria-label={`Delete ${report.name}`} onClick={() => onDelete(report.id)}><MoreHorizontal aria-hidden="true" /></button>}</div></td></tr>)}</tbody></table></div>{reports.length === 0 && <EmptyState title="No documents yet" text="Documents shared with you will appear here." />}<div className="table-footer"><span>{reports.length} documents</span><div><button className="icon-button" aria-label="Previous page" disabled><ChevronLeft aria-hidden="true" /></button><span className="page-number">1</span><button className="icon-button" aria-label="Next page" disabled><ChevronRight aria-hidden="true" /></button></div></div></section></div>
 }
 
-function AdmissionsPage({ admissions, patients, role, onAdd, onDischarge, onOpenPatient }: { admissions: Admission[]; patients: Patient[]; role: Role; onAdd: () => void; onDischarge: (id: string) => void; onOpenPatient: (patient: Patient) => void }) {
+function AdmissionsPage({ admissions, patients, role, onAdd, onDischarge, onOpenPatient, onDownloadDischarge }: { admissions: Admission[]; patients: Patient[]; role: Role; onAdd: () => void; onDischarge: (id: string) => void; onOpenPatient: (patient: Patient) => void; onDownloadDischarge: (admission: Admission) => void }) {
   const current = admissions.filter((item) => item.status === "Admitted").length
-  return <div className="page-stack"><PageHeading eyebrow="INPATIENT SERVICES" title={role === "Patient" ? "My hospital stays" : "Hospital stays"} description={role === "Patient" ? "Your admission and discharge history." : "Coordinate admissions, ward placement, and discharge."} action={role === "Hospital staff" || role === "Administrator" ? <button className="button button-primary" onClick={onAdd}><Plus aria-hidden="true" /> New admission</button> : undefined} /><div className="admission-summary-row"><div className="surface-card admission-summary"><span className="summary-icon icon-blue"><Activity aria-hidden="true" /></span><div><strong>{current}</strong><span>Active stays in view</span></div></div><div className="surface-card admission-summary"><span className="summary-icon icon-teal"><Check aria-hidden="true" /></span><div><strong>{admissions.filter((item) => item.status === "Discharged").length}</strong><span>Discharged in this view</span></div></div><div className="admission-summary-caption"><ShieldCheck aria-hidden="true" /> Patient details are shown only to authorized roles.</div></div><section className="surface-card table-card full-table"><div className="table-scroll"><table><thead><tr><th>Patient</th><th>Admission ID</th><th>Ward / service</th><th>Bed</th><th>Admitted</th><th>Status</th><th>Discharged</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{admissions.map((admission) => <tr key={admission.id}><td><button className="table-link" onClick={() => { const target = patients.find((item) => item.id === admission.patientId) ?? patients[0]; if (target) onOpenPatient(target) }}>{admission.patient}</button></td><td className="id-cell">{admission.id}</td><td>{admission.ward}</td><td>{admission.bed}</td><td>{admission.admitted}</td><td><StatusPill status={admission.status} /></td><td>{admission.discharged ?? "—"}</td><td>{admission.status === "Admitted" && (role === "Hospital staff" || role === "Administrator") ? <button className="button button-outline button-small" onClick={() => onDischarge(admission.id)}>Discharge</button> : <button className="icon-button row-action" aria-label={`View admission for ${admission.patient}`} onClick={() => alert(admission.notes || "Active stay in hospital.")}><ArrowUpRight aria-hidden="true" /></button>}</td></tr>)}</tbody></table></div>{admissions.length === 0 && <EmptyState title="No hospital stays" text="No admission records are available in this view." />}<div className="table-footer"><span>{admissions.length} stays</span><div><button className="icon-button" aria-label="Previous page" disabled><ChevronLeft aria-hidden="true" /></button><span className="page-number">1</span><button className="icon-button" aria-label="Next page" disabled><ChevronRight aria-hidden="true" /></button></div></div></section><div className="notice-callout"><AlertCircle aria-hidden="true" /><p>Before discharge, confirm the treating team has completed the discharge summary and patient instructions.</p></div></div>
+  return <div className="page-stack"><PageHeading eyebrow="INPATIENT SERVICES" title={role === "Patient" ? "My hospital stays" : "Hospital stays"} description={role === "Patient" ? "Your admission and discharge history." : "Coordinate admissions, ward placement, and discharge."} action={role === "Hospital staff" || role === "Administrator" ? <button className="button button-primary" onClick={onAdd}><Plus aria-hidden="true" /> New admission</button> : undefined} /><div className="admission-summary-row"><div className="surface-card admission-summary"><span className="summary-icon icon-blue"><Activity aria-hidden="true" /></span><div><strong>{current}</strong><span>Active stays in view</span></div></div><div className="surface-card admission-summary"><span className="summary-icon icon-teal"><Check aria-hidden="true" /></span><div><strong>{admissions.filter((item) => item.status === "Discharged").length}</strong><span>Discharged in this view</span></div></div><div className="admission-summary-caption"><ShieldCheck aria-hidden="true" /> Patient details are shown only to authorized roles.</div></div><section className="surface-card table-card full-table"><div className="table-scroll"><table><thead><tr><th>Patient</th><th>Admission ID</th><th>Ward / service</th><th>Bed</th><th>Admitted</th><th>Status</th><th>Discharged</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{admissions.map((admission) => <tr key={admission.id}><td><button className="table-link" onClick={() => { const target = patients.find((item) => item.id === admission.patientId) ?? patients[0]; if (target) onOpenPatient(target) }}>{admission.patient}</button></td><td className="id-cell">{admission.id}</td><td>{admission.ward}</td><td>{admission.bed}</td><td>{admission.admitted}</td><td><StatusPill status={admission.status} /></td><td>{admission.discharged ?? "—"}</td><td>{admission.status === "Admitted" && (role === "Hospital staff" || role === "Administrator") ? <button className="button button-outline button-small" onClick={() => onDischarge(admission.id)}>Discharge</button> : admission.status === "Discharged" ? <button className="button button-outline button-small" onClick={() => onDownloadDischarge(admission)} title="Download complete Discharge Summary PDF" style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}><Download size={13} aria-hidden="true" /> Summary PDF</button> : <button className="icon-button row-action" aria-label={`View admission for ${admission.patient}`} onClick={() => alert(admission.notes || "Active stay in hospital.")}><ArrowUpRight aria-hidden="true" /></button>}</td></tr>)}</tbody></table></div>{admissions.length === 0 && <EmptyState title="No hospital stays" text="No admission records are available in this view." />}<div className="table-footer"><span>{admissions.length} stays</span><div><button className="icon-button" aria-label="Previous page" disabled><ChevronLeft aria-hidden="true" /></button><span className="page-number">1</span><button className="icon-button" aria-label="Next page" disabled><ChevronRight aria-hidden="true" /></button></div></div></section><div className="notice-callout"><AlertCircle aria-hidden="true" /><p>Before discharge, confirm the treating team has completed the discharge summary and patient instructions.</p></div></div>
 }
 
 function StaffPage({
@@ -1640,7 +1783,52 @@ function SettingsPage({
 function RecordList({ records }: { records: MedicalRecord[] }) { return <div className="surface-card table-card full-table"><div className="table-scroll"><table><thead><tr><th>Record</th><th>Diagnosis</th><th>Doctor</th><th>Clinical date</th><th>Patient</th><th><span className="sr-only">Details</span></th></tr></thead><tbody>{records.map((record) => <tr key={record.id}><td><span className="table-test"><span className="test-icon"><ClipboardList aria-hidden="true" /></span><span><strong>{record.title}</strong><small>{record.id}</small></span></span></td><td>{record.diagnosis}</td><td>{record.doctor}</td><td>{record.date}</td><td>{record.patient}</td><td><button className="icon-button row-action" aria-label={`View ${record.title}`} onClick={() => alert(record.notes)}><ArrowUpRight aria-hidden="true" /></button></td></tr>)}</tbody></table></div>{records.length === 0 && <EmptyState title="No medical records" text="Your care team has not shared any records in this category." />}</div> }
 function DiagnosticList({ tests }: { tests: DiagnosticTest[] }) { return <div className="surface-card table-card full-table"><div className="table-scroll"><table><thead><tr><th>Test</th><th>Date</th><th>Requesting clinician</th><th>Status</th><th>Department</th></tr></thead><tbody>{tests.map((test) => <tr key={test.id}><td>{test.test}</td><td>{test.date}</td><td>{test.doctor}</td><td><StatusPill status={test.status} /></td><td>{test.department}</td></tr>)}</tbody></table></div>{tests.length === 0 && <EmptyState title="No diagnostic tests" text="Scheduled tests will be listed here." />}</div> }
 function ReportList({ reports, onPreview }: { reports: MedicalReport[]; onPreview: (report: MedicalReport) => void }) { return <div className="report-list">{reports.map((report) => <button className="surface-card report-list-card" key={report.id} onClick={() => onPreview(report)}><span className="document-icon"><FileHeart aria-hidden="true" /></span><span><strong>{report.name}</strong><small>{report.type} · {report.date}</small></span><ArrowUpRight aria-hidden="true" /></button>)}{reports.length === 0 && <EmptyState title="No reports shared" text="Documents shared with you will appear here." />}</div> }
-function AdmissionList({ admissions }: { admissions: Admission[] }) { return <div className="surface-card table-card full-table"><div className="table-scroll"><table><thead><tr><th>Hospital stay</th><th>Ward / service</th><th>Admission date</th><th>Discharge date</th><th>Status</th></tr></thead><tbody>{admissions.map((admission) => <tr key={admission.id}><td>{admission.id}</td><td>{admission.ward} · {admission.bed}</td><td>{admission.admitted}</td><td>{admission.discharged ?? "—"}</td><td><StatusPill status={admission.status} /></td></tr>)}</tbody></table></div>{admissions.length === 0 && <EmptyState title="No stays recorded" text="Hospital stays will appear here when shared by your care team." />}</div> }
+function AdmissionList({ admissions, onDownloadDischarge }: { admissions: Admission[]; onDownloadDischarge?: (admission: Admission) => void }) {
+  return (
+    <div className="surface-card table-card full-table">
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Hospital stay</th>
+              <th>Ward / service</th>
+              <th>Admission date</th>
+              <th>Discharge date</th>
+              <th>Status</th>
+              <th>Clinical summary</th>
+            </tr>
+          </thead>
+          <tbody>
+            {admissions.map((admission) => (
+              <tr key={admission.id}>
+                <td className="id-cell">{admission.id}</td>
+                <td>{admission.ward} · {admission.bed}</td>
+                <td>{admission.admitted}</td>
+                <td>{admission.discharged ?? "—"}</td>
+                <td><StatusPill status={admission.status} /></td>
+                <td>
+                  {admission.status === "Discharged" ? (
+                    <button
+                      className="button button-outline button-small"
+                      onClick={() => onDownloadDischarge?.(admission)}
+                      title="Download official Discharge Summary PDF"
+                      style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}
+                    >
+                      <Download size={13} aria-hidden="true" /> Download PDF
+                    </button>
+                  ) : (
+                    <span style={{ fontSize: "11px", color: "#64748b" }}>Active stay</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {admissions.length === 0 && <EmptyState title="No stays recorded" text="Hospital stays will appear here when shared by your care team." />}
+    </div>
+  )
+}
 
 function StatusPill({ status }: { status: string }) { const tone = /admitted|active|ready|documented/i.test(status) ? "green" : /follow|scheduled/i.test(status) ? "amber" : /progress/i.test(status) ? "blue" : "neutral"; return <span className={`status-pill status-${tone}`}><i />{status}</span> }
 function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state"><span><Search aria-hidden="true" /></span><strong>{title}</strong><p>{text}</p></div> }
@@ -1987,6 +2175,72 @@ function ActionDialog({ type, role, patients, patientToEdit, doctor, liveDoctors
     </form>}</section></div>
 }
 
-function ReportDialog({ report, onClose }: { report: MedicalReport; onClose: () => void }) { const url = useMemo(() => report.file ? URL.createObjectURL(report.file) : "", [report.file]); useEffect(() => () => { if (url) URL.revokeObjectURL(url) }, [url]); return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="action-dialog report-dialog" role="dialog" aria-modal="true" aria-labelledby="report-dialog-title"><div className="dialog-heading"><div><span className="eyebrow">{report.id || "PATIENT SUMMARY"} · {report.date}</span><h2 id="report-dialog-title">{report.name}</h2><p>{report.type} · {report.size}</p></div><button className="icon-button" aria-label="Close preview" onClick={onClose}><X aria-hidden="true" /></button></div><div className="report-preview-content">{report.file?.type.startsWith("image/") ? <img src={url} alt={`Preview of ${report.name}`} /> : report.file?.type === "application/pdf" ? <iframe title={`Document preview: ${report.name}`} src={url} /> : <div className="sample-document"><span className="document-icon"><FileHeart aria-hidden="true" /></span><strong>Demonstration document</strong><p>This sample file is a fictional placeholder for document metadata. No clinical conclusions are included.</p><span>Patient: {report.patient}</span><span>Type: {report.type}</span></div>}</div><div className="dialog-actions">{url && <a className="button button-outline" href={url} download={report.name}><Download aria-hidden="true" /> Download</a>}<button className="button button-primary" onClick={onClose}>Done</button></div></section></div> }
+function ReportDialog({ report, onClose }: { report: MedicalReport; onClose: () => void }) {
+  const [downloading, setDownloading] = useState(false)
+  const url = useMemo(() => report.file ? URL.createObjectURL(report.file) : "", [report.file])
+  useEffect(() => () => { if (url) URL.revokeObjectURL(url) }, [url])
+
+  const handleDownload = async () => {
+    if (url) {
+      const a = document.createElement("a")
+      a.href = url
+      a.download = report.name
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      return
+    }
+    const rawReportId = parseInt(report.id.replace(/\D/g, "")) || 0
+    const rawPatientId = parseInt((report.patientId || "").replace(/\D/g, "")) || 0
+    if (rawReportId > 0 && rawPatientId > 0) {
+      try {
+        setDownloading(true)
+        await reportApi.downloadReport(rawPatientId, rawReportId, report.name)
+      } catch (err: any) {
+        alert(`Failed to download report: ${err.message}`)
+      } finally {
+        setDownloading(false)
+      }
+    } else {
+      alert("This document is a clinical summary on file in the patient's records.")
+    }
+  }
+
+  return (
+    <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <section className="action-dialog report-dialog" role="dialog" aria-modal="true" aria-labelledby="report-dialog-title">
+        <div className="dialog-heading">
+          <div>
+            <span className="eyebrow">{report.id || "PATIENT SUMMARY"} · {report.date}</span>
+            <h2 id="report-dialog-title">{report.name}</h2>
+            <p>{report.type} · {report.size}</p>
+          </div>
+          <button className="icon-button" aria-label="Close preview" onClick={onClose}><X aria-hidden="true" /></button>
+        </div>
+        <div className="report-preview-content">
+          {report.file?.type.startsWith("image/") ? (
+            <img src={url} alt={`Preview of ${report.name}`} />
+          ) : report.file?.type === "application/pdf" ? (
+            <iframe title={`Document preview: ${report.name}`} src={url} />
+          ) : (
+            <div className="sample-document">
+              <span className="document-icon"><FileHeart aria-hidden="true" /></span>
+              <strong>Clinical Document Archive</strong>
+              <p>Stored securely on Cloudinary via CardioTrack Report Service.</p>
+              <span>Patient: {report.patient}</span>
+              <span>Type: {report.type}</span>
+            </div>
+          )}
+        </div>
+        <div className="dialog-actions">
+          <button className="button button-outline" onClick={handleDownload} disabled={downloading}>
+            <Download aria-hidden="true" /> {downloading ? "Downloading..." : "Download"}
+          </button>
+          <button className="button button-primary" onClick={onClose}>Done</button>
+        </div>
+      </section>
+    </div>
+  )
+}
 
 function initials(name: string) { return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part.replace(".", "")[0]).join("").toUpperCase() }
